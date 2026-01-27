@@ -79,7 +79,8 @@ export interface ClickUpTask {
 export interface NormalizedTask {
   id: string;
   title: string;
-  status: string;
+  status: string; // Normalized (COMPLETED, IN PROGRESS, etc)
+  rawStatus: string; // Original text
   editorName: string;
   editorId: number | null;
   dateCreated: number; // Timestamp
