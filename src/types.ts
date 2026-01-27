@@ -175,23 +175,22 @@ export const END_STATUSES = [
   'FINALIZADO', 'ENTREGUE', 'APROVADO'
 ];
 
-// Status específicos para medir tempo de edição (VIDEO: EDITANDO -> APROVADO ou CONCLUÍDO)
+// Status específicos para medir tempo de edição
 export const EDITING_START_STATUSES = [
-  'VIDEO: EDITANDO', 'EDITANDO'
+  'VIDEO: EDITANDO'
 ];
 
 // Fim da edição: APROVADO ou CONCLUÍDO (o que vier primeiro)
 export const EDITING_END_STATUSES = [
-  'APROVADO', 'CONCLUÍDO', 'CONCLUIDO', 'COMPLETED', 'DONE', 'CLOSED', 'FINALIZADO', 'ENTREGUE'
+  'APROVADO', 'CONCLUÍDO', 'CONCLUIDO', 'DISCARTADO'
 ];
 
-// Status de REVISÃO/ALTERAÇÃO
+// Status de REVISÃO/ALTERAÇÃO (inclui PARA REVISÃO, REVISANDO, ALTERAÇÃO)
 export const REVISION_STATUSES = [
-  'REVISÃO', 'REVISAO', 'REVIEW', 'ALTERAÇÃO', 'ALTERACAO', 'ALTERAR',
-  'VIDEO: REVISÃO', 'VIDEO: ALTERAÇÃO', 'AJUSTE', 'CORREÇÃO', 'CORRECAO'
+  'PARA REVISÃO', 'PARA REVISAO', 'REVISANDO', 'ALTERAÇÃO', 'ALTERACAO'
 ];
 
 // Status de APROVADO
 export const APPROVAL_STATUSES = [
-  'APROVADO', 'APPROVED'
+  'APROVADO'
 ];

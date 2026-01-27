@@ -120,28 +120,32 @@ export class TimeTrackingService {
      * Checks if a status is the start of editing phase (VIDEO: EDITANDO)
      */
     isEditingStartStatus(status: string): boolean {
-        return EDITING_START_STATUSES.some(s => status.toUpperCase().includes(s));
+        const statusUpper = status.toUpperCase();
+        return statusUpper === 'VIDEO: EDITANDO';
     }
 
     /**
-     * Checks if a status is the end of editing phase (APROVADO)
+     * Checks if a status is the end of editing phase (APROVADO, CONCLUÍDO)
      */
     isEditingEndStatus(status: string): boolean {
-        return EDITING_END_STATUSES.some(s => status.toUpperCase().includes(s));
+        const statusUpper = status.toUpperCase();
+        return statusUpper === 'APROVADO' || statusUpper === 'CONCLUÍDO' || statusUpper === 'DISCARTADO';
     }
 
     /**
-     * Checks if a status is a revision/alteration status
+     * Checks if a status is a revision/alteration status (PARA REVISÃO, REVISANDO, ALTERAÇÃO)
      */
     isRevisionStatus(status: string): boolean {
-        return REVISION_STATUSES.some(s => status.toUpperCase().includes(s));
+        const statusUpper = status.toUpperCase();
+        return statusUpper === 'PARA REVISÃO' || statusUpper === 'REVISANDO' || statusUpper === 'ALTERAÇÃO';
     }
 
     /**
-     * Checks if a status is approval status
+     * Checks if a status is approval status (APROVADO)
      */
     isApprovalStatus(status: string): boolean {
-        return APPROVAL_STATUSES.some(s => status.toUpperCase().includes(s));
+        const statusUpper = status.toUpperCase();
+        return statusUpper === 'APROVADO';
     }
 
     /**

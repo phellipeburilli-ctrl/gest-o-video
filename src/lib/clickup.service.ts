@@ -204,8 +204,8 @@ export class ClickUpService {
                         const statusName = statusMap.get(statusId) || statusId;
                         const statusUpper = statusName.toUpperCase();
 
-                        // Conta tempo em EDITANDO (este é o tempo que queremos medir)
-                        if (statusUpper.includes('EDITANDO')) {
+                        // Conta tempo em VIDEO: EDITANDO
+                        if (statusUpper === 'VIDEO: EDITANDO') {
                             const byMinute = (data as any).total_time?.by_minute;
                             const timeValue = (data as any).time;
                             const timeMs = byMinute ? byMinute * 60 * 1000 : (timeValue || 0);
@@ -272,16 +272,16 @@ export class ClickUpService {
                             console.log(`[ClickUp] Task ${taskId}: status "${statusName}" (${statusId}) = ${(timeMs / 3600000).toFixed(2)}h`);
                         }
 
-                        // Tempo em EDITANDO
-                        if (statusUpper.includes('EDITANDO')) {
+                        // Tempo em VIDEO: EDITANDO
+                        if (statusUpper === 'VIDEO: EDITANDO') {
                             phaseTime.editingTimeMs += timeMs;
                         }
-                        // Tempo em REVISÃO/ALTERAÇÃO
-                        else if (statusUpper.includes('REVIS') || statusUpper.includes('ALTERA') || statusUpper.includes('AJUSTE') || statusUpper.includes('CORRE')) {
+                        // Tempo em REVISÃO (PARA REVISÃO, REVISANDO, ALTERAÇÃO)
+                        else if (statusUpper === 'PARA REVISÃO' || statusUpper === 'REVISANDO' || statusUpper === 'ALTERAÇÃO') {
                             phaseTime.revisionTimeMs += timeMs;
                         }
                         // Tempo em APROVADO
-                        else if (statusUpper.includes('APROVADO') || statusUpper.includes('APPROVED')) {
+                        else if (statusUpper === 'APROVADO') {
                             phaseTime.approvalTimeMs += timeMs;
                         }
 
