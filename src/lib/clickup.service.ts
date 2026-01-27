@@ -1,5 +1,5 @@
 import { ClickUpTask, TaskPhaseTime } from '@/types';
-import { AUDIOVISUAL_TEAM_IDS } from './constants';
+import { AUDIOVISUAL_TEAM_IDS, EXCLUDED_USER_IDS } from './constants';
 
 const CLICKUP_API_URL = 'https://api.clickup.com/api/v2';
 const MAX_PAGES = 10; // Safety limit for pagination
@@ -129,20 +129,30 @@ export class ClickUpService {
             console.log(`[ClickUp] Total raw tasks fetched from all lists: ${allTasks.length}`);
 
             // MODIFIED FILTER: Check Tag OR Assignee ID
-            const filteredTasks = allTasks.filter(task => {
-                // Condition 0: Explicitly Exclude User 55083349
-                if (task.assignees.some(u => u.id === 55083349)) return false;
+            // Also filter out excluded users from assignees list
+            const filteredTasks = allTasks
+                .map(task => {
+                    // Remove excluded users from assignees list
+                    // This ensures metrics are calculated only for valid editors
+                    const validAssignees = task.assignees.filter(
+                        user => !EXCLUDED_USER_IDS.includes(user.id)
+                    );
+                    return {
+                        ...task,
+                        assignees: validAssignees
+                    };
+                })
+                .filter(task => {
+                    // Condition 1: Has "AUDIOVISUAL" Tag
+                    const hasTag = task.tags.some(tag => tag.name.toUpperCase() === 'AUDIOVISUAL');
 
-                // Condition 1: Has "AUDIOVISUAL" Tag
-                const hasTag = task.tags.some(tag => tag.name.toUpperCase() === 'AUDIOVISUAL');
+                    // Condition 2: Assigned to one of the Team Members (after exclusion)
+                    const hasTeamMember = task.assignees.some(user => AUDIOVISUAL_TEAM_IDS.includes(user.id));
 
-                // Condition 2: Assigned to one of the Team Members
-                const hasTeamMember = task.assignees.some(user => AUDIOVISUAL_TEAM_IDS.includes(user.id));
+                    const isValid = hasTag || hasTeamMember;
 
-                const isValid = hasTag || hasTeamMember;
-
-                return isValid;
-            });
+                    return isValid;
+                });
 
             console.log(`[ClickUp] Valid tasks after filter (Tag OR Team Member): ${filteredTasks.length}`);
 
