@@ -4,7 +4,7 @@ import ComparisonTable from "@/components/comparison-table";
 
 // Helper to get data (Server Action pattern in Page)
 async function getData() {
-    const tasks = await clickupService.getTasks();
+    const tasks = await clickupService.fetchTasks();
     const normalized = dataService.normalizeTasks(tasks);
     const kpis = dataService.calculateDashboardKPIs(normalized);
     return kpis;
