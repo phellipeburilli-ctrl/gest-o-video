@@ -12,17 +12,18 @@ export default async function Home() {
   // 1. Fetch tasks from ClickUp API
   const tasks = await clickupService.fetchTasks();
 
-  // 2. Get task IDs and fetch working time from webhook history
+  // 2. Get task IDs and fetch editing time from webhook history (EDITANDO -> APROVADO)
   const taskIds = tasks.map(t => t.id);
-  console.log(`[Home] Fetching working time for ${taskIds.length} tasks from webhook history...`);
+  console.log(`[Home] Fetching editing time for ${taskIds.length} tasks from webhook history...`);
 
   let webhookTimeMap: Map<string, number>;
   try {
-    webhookTimeMap = await timeTrackingService.getWorkingTimeForTasks(taskIds);
+    // Use getEditingTimeForTasks to calculate time from VIDEO: EDITANDO to APROVADO
+    webhookTimeMap = await timeTrackingService.getEditingTimeForTasks(taskIds);
     const tasksWithWebhookTime = Array.from(webhookTimeMap.values()).filter(t => t > 0).length;
-    console.log(`[Home] Found webhook time data for ${tasksWithWebhookTime} tasks`);
+    console.log(`[Home] Found editing time data for ${tasksWithWebhookTime} tasks`);
   } catch (error) {
-    console.error('[Home] Error fetching webhook time data, using fallback:', error);
+    console.error('[Home] Error fetching editing time data, using fallback:', error);
     webhookTimeMap = new Map();
   }
 

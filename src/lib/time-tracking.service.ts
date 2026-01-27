@@ -1,5 +1,5 @@
 import { sql } from '@vercel/postgres';
-import { TaskStatusEvent, TaskWorkingTime, TaskTimeInterval, WORKING_STATUSES, END_STATUSES } from '@/types';
+import { TaskStatusEvent, TaskWorkingTime, TaskTimeInterval, WORKING_STATUSES, END_STATUSES, EDITING_START_STATUSES, EDITING_END_STATUSES } from '@/types';
 
 export class TimeTrackingService {
 
@@ -113,6 +113,20 @@ export class TimeTrackingService {
     }
 
     /**
+     * Checks if a status is the start of editing phase (VIDEO: EDITANDO)
+     */
+    isEditingStartStatus(status: string): boolean {
+        return EDITING_START_STATUSES.some(s => status.toUpperCase().includes(s));
+    }
+
+    /**
+     * Checks if a status is the end of editing phase (APROVADO)
+     */
+    isEditingEndStatus(status: string): boolean {
+        return EDITING_END_STATUSES.some(s => status.toUpperCase().includes(s));
+    }
+
+    /**
      * Calculates total working time for a task based on status history.
      * Working time = sum of all intervals where task was in a "working" status
      * until it moved to an "end" status or another non-working status.
@@ -216,6 +230,105 @@ export class TimeTrackingService {
     async getDetailedWorkingTime(taskId: string): Promise<TaskWorkingTime> {
         const history = await this.getTaskStatusHistory(taskId);
         return this.calculateWorkingTime(history);
+    }
+
+    /**
+     * Calculates editing time: from "VIDEO: EDITANDO" to "APROVADO"
+     * This is the specific metric for video editors
+     */
+    calculateEditingTime(history: TaskStatusEvent[]): TaskWorkingTime {
+        if (history.length === 0) {
+            return {
+                taskId: '',
+                totalWorkingTimeMs: 0,
+                intervals: []
+            };
+        }
+
+        const taskId = history[0].taskId;
+        const intervals: TaskTimeInterval[] = [];
+        let editingStartTime: number | null = null;
+        let editingStartStatus: string | null = null;
+
+        for (let i = 0; i < history.length; i++) {
+            const event = history[i];
+            const newStatus = event.newStatus.toUpperCase();
+
+            // Check if entering editing status (VIDEO: EDITANDO)
+            if (this.isEditingStartStatus(newStatus)) {
+                if (editingStartTime === null) {
+                    editingStartTime = event.eventTimestamp;
+                    editingStartStatus = newStatus;
+                    console.log(`[TimeTracking] Task ${taskId}: Started editing at ${new Date(editingStartTime).toISOString()}`);
+                }
+            }
+            // Check if task is approved (end of editing phase)
+            else if (this.isEditingEndStatus(newStatus) && editingStartTime !== null) {
+                const endTimestamp = event.eventTimestamp;
+                const durationMs = endTimestamp - editingStartTime;
+
+                intervals.push({
+                    taskId,
+                    status: editingStartStatus || 'EDITANDO',
+                    startTimestamp: editingStartTime,
+                    endTimestamp,
+                    durationMs
+                });
+
+                console.log(`[TimeTracking] Task ${taskId}: Approved! Editing time = ${(durationMs / 3600000).toFixed(2)}h`);
+
+                // Reset for potential re-editing cycles
+                editingStartTime = null;
+                editingStartStatus = null;
+            }
+        }
+
+        // If still editing (not yet approved)
+        if (editingStartTime !== null) {
+            const now = Date.now();
+            const durationMs = now - editingStartTime;
+
+            intervals.push({
+                taskId,
+                status: editingStartStatus || 'EDITANDO',
+                startTimestamp: editingStartTime,
+                endTimestamp: null, // Still in progress
+                durationMs
+            });
+
+            console.log(`[TimeTracking] Task ${taskId}: Still editing, current time = ${(durationMs / 3600000).toFixed(2)}h`);
+        }
+
+        const totalWorkingTimeMs = intervals.reduce((sum, interval) => sum + interval.durationMs, 0);
+
+        return {
+            taskId,
+            totalWorkingTimeMs,
+            intervals
+        };
+    }
+
+    /**
+     * Calculates editing time (EDITANDO -> APROVADO) for multiple tasks
+     * Returns a Map of taskId -> editing time in milliseconds
+     */
+    async getEditingTimeForTasks(taskIds: string[]): Promise<Map<string, number>> {
+        const historyMap = await this.getStatusHistoryForTasks(taskIds);
+        const editingTimeMap = new Map<string, number>();
+
+        for (const [taskId, history] of historyMap) {
+            const editingTime = this.calculateEditingTime(history);
+            editingTimeMap.set(taskId, editingTime.totalWorkingTimeMs);
+        }
+
+        // Ensure all requested task IDs have an entry (0 if no history)
+        for (const taskId of taskIds) {
+            if (!editingTimeMap.has(taskId)) {
+                editingTimeMap.set(taskId, 0);
+            }
+        }
+
+        return editingTimeMap;
     }
 }
 

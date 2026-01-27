@@ -144,10 +144,20 @@ export interface TaskWorkingTime {
 // Status categories for time tracking
 export const WORKING_STATUSES = [
   'EM ANDAMENTO', 'IN PROGRESS', 'DOING', 'RUNNING', 'FAZENDO',
-  'REVISÃO', 'REVISAO', 'REVIEW', 'QA', 'APROVAÇÃO'
+  'REVISÃO', 'REVISAO', 'REVIEW', 'QA', 'APROVAÇÃO',
+  'VIDEO: EDITANDO', 'EDITANDO'
 ];
 
 export const END_STATUSES = [
   'CONCLUÍDO', 'CONCLUIDO', 'COMPLETED', 'DONE', 'CLOSED',
-  'FINALIZADO', 'ENTREGUE'
+  'FINALIZADO', 'ENTREGUE', 'APROVADO'
+];
+
+// Status específicos para medir tempo de edição (VIDEO: EDITANDO -> APROVADO)
+export const EDITING_START_STATUSES = [
+  'VIDEO: EDITANDO', 'EDITANDO'
+];
+
+export const EDITING_END_STATUSES = [
+  'APROVADO'
 ];
