@@ -9,111 +9,124 @@ const START_DATE_2026 = new Date('2026-01-01T00:00:00Z').getTime();
 
 export class ClickUpService {
     private apiKey: string;
-    private listId: string;
+    private listIds: string[];
     private statusMap: Map<string, string> | null = null;
 
     constructor() {
         this.apiKey = process.env.CLICKUP_API_KEY || '';
-        this.listId = process.env.CLICKUP_LIST_ID || '';
+        // Support multiple list IDs separated by newline, comma, or space
+        const rawListId = process.env.CLICKUP_LIST_ID || '';
+        this.listIds = rawListId
+            .split(/[\n,\s]+/)
+            .map(id => id.trim())
+            .filter(id => id.length > 0);
+        console.log(`[ClickUp] Initialized with ${this.listIds.length} list IDs: ${this.listIds.join(', ')}`);
     }
 
     /**
-     * Fetches the status ID to name mapping from the list
+     * Fetches the status ID to name mapping from all configured lists
      */
     async getStatusMap(): Promise<Map<string, string>> {
         if (this.statusMap) {
             return this.statusMap;
         }
 
-        try {
-            const url = `${CLICKUP_API_URL}/list/${this.listId}`;
-            const response = await fetch(url, {
-                headers: { 'Authorization': this.apiKey },
-                cache: 'no-store',
-            });
+        this.statusMap = new Map<string, string>();
 
-            if (!response.ok) {
-                console.error('[ClickUp] Failed to fetch list statuses');
-                return new Map();
+        for (const listId of this.listIds) {
+            try {
+                const url = `${CLICKUP_API_URL}/list/${listId}`;
+                const response = await fetch(url, {
+                    headers: { 'Authorization': this.apiKey },
+                    cache: 'no-store',
+                });
+
+                if (!response.ok) {
+                    console.error(`[ClickUp] Failed to fetch statuses for list ${listId}`);
+                    continue;
+                }
+
+                const data = await response.json();
+                const statuses = data.statuses || [];
+
+                for (const status of statuses) {
+                    this.statusMap.set(status.id, status.status);
+                    console.log(`[ClickUp] Status mapping: ${status.id} -> ${status.status}`);
+                }
+            } catch (error) {
+                console.error(`[ClickUp] Error fetching status map for list ${listId}:`, error);
             }
-
-            const data = await response.json();
-            const statuses = data.statuses || [];
-
-            this.statusMap = new Map<string, string>();
-            for (const status of statuses) {
-                this.statusMap.set(status.id, status.status);
-                console.log(`[ClickUp] Status mapping: ${status.id} -> ${status.status}`);
-            }
-
-            return this.statusMap;
-        } catch (error) {
-            console.error('[ClickUp] Error fetching status map:', error);
-            return new Map();
         }
+
+        return this.statusMap;
     }
 
     /**
-     * Fetches all tasks from the configured list, handling pagination.
+     * Fetches all tasks from ALL configured lists, handling pagination.
      * Filters by "AUDIOVISUAL" tag OR if assignee is in the AUDIOVISUAL_TEAM_IDS list.
      */
     async fetchTasks(): Promise<ClickUpTask[]> {
-        if (!this.apiKey || !this.listId) {
+        if (!this.apiKey || this.listIds.length === 0) {
             console.error('ClickUp credentials missing');
             return [];
         }
 
         let allTasks: ClickUpTask[] = [];
-        let page = 0;
-        let hasMore = true;
 
         try {
-            while (hasMore && page < MAX_PAGES) {
-                // Filtrar tarefas criadas a partir de 1 de Janeiro de 2026
-                const url = `${CLICKUP_API_URL}/list/${this.listId}/task?page=${page}&include_closed=true&subtasks=true&date_created_gt=${START_DATE_2026}`;
-                console.log(`[ClickUp] Fetching page ${page}... URL: ${url}`);
+            // Fetch from each list
+            for (const listId of this.listIds) {
+                console.log(`[ClickUp] Fetching tasks from list ${listId}...`);
+                let page = 0;
+                let hasMore = true;
 
-                const response = await fetch(url, {
-                    method: 'GET',
-                    headers: {
-                        'Authorization': this.apiKey,
-                        'Content-Type': 'application/json',
-                    },
-                    cache: 'no-store', // Always fetch fresh data
-                });
+                while (hasMore && page < MAX_PAGES) {
+                    // Filtrar tarefas criadas a partir de 1 de Janeiro de 2026
+                    const url = `${CLICKUP_API_URL}/list/${listId}/task?page=${page}&include_closed=true&subtasks=true&date_created_gt=${START_DATE_2026}`;
+                    console.log(`[ClickUp] Fetching list ${listId}, page ${page}...`);
 
-                if (!response.ok) {
-                    const body = await response.text();
-                    console.error(`[ClickUp] API Error: ${response.status} ${response.statusText} - Body: ${body}`);
-                    throw new Error(`ClickUp API Error: ${response.statusText}`);
-                }
+                    const response = await fetch(url, {
+                        method: 'GET',
+                        headers: {
+                            'Authorization': this.apiKey,
+                            'Content-Type': 'application/json',
+                        },
+                        cache: 'no-store', // Always fetch fresh data
+                    });
 
-                const data = await response.json();
-                const tasks: ClickUpTask[] = data.tasks || [];
+                    if (!response.ok) {
+                        const body = await response.text();
+                        console.error(`[ClickUp] API Error for list ${listId}: ${response.status} ${response.statusText} - Body: ${body}`);
+                        break; // Skip to next list instead of throwing
+                    }
 
-                console.log(`[ClickUp] Page ${page} fetched. Count: ${tasks.length}`);
+                    const data = await response.json();
+                    const tasks: ClickUpTask[] = data.tasks || [];
 
-                if (tasks.length > 0) {
-                    // DEBUG: Log key fields of the first task to find where "Hours" are stored
-                    const t = tasks[0];
-                    console.log(`[ClickUp] Debug Task [${t.name}]:`, JSON.stringify({
-                        status: t.status,
-                        time_spent: t.time_spent,
-                        date_created: t.date_created,
-                        date_closed: t.date_closed,
-                        custom_fields: t.custom_fields.map(f => ({ name: f.name, value: f.value, type: f.type }))
-                    }, null, 2));
-                }
+                    console.log(`[ClickUp] List ${listId}, page ${page} fetched. Count: ${tasks.length}`);
 
-                if (tasks.length === 0) {
-                    hasMore = false;
-                } else {
-                    allTasks = [...allTasks, ...tasks];
-                    page++;
+                    if (tasks.length > 0 && page === 0) {
+                        // DEBUG: Log key fields of the first task to find where "Hours" are stored
+                        const t = tasks[0];
+                        console.log(`[ClickUp] Debug Task [${t.name}]:`, JSON.stringify({
+                            status: t.status,
+                            time_spent: t.time_spent,
+                            date_created: t.date_created,
+                            date_closed: t.date_closed,
+                            custom_fields: t.custom_fields.map(f => ({ name: f.name, value: f.value, type: f.type }))
+                        }, null, 2));
+                    }
+
+                    if (tasks.length === 0) {
+                        hasMore = false;
+                    } else {
+                        allTasks = [...allTasks, ...tasks];
+                        page++;
+                    }
                 }
             }
 
-            console.log(`[ClickUp] Total raw tasks fetched: ${allTasks.length}`);
+            console.log(`[ClickUp] Total raw tasks fetched from all lists: ${allTasks.length}`);
 
             // MODIFIED FILTER: Check Tag OR Assignee ID
             const filteredTasks = allTasks.filter(task => {
@@ -128,9 +141,6 @@ export class ClickUpService {
 
                 const isValid = hasTag || hasTeamMember;
 
-                if (!isValid && allTasks.length < 50) {
-                    // console.log(`[ClickUp] Task '${task.name}' REJECTED. Tags: [${task.tags.map(t => t.name).join(', ')}] Assignees: [${task.assignees.map(u => u.id).join(', ')}]`);
-                }
                 return isValid;
             });
 

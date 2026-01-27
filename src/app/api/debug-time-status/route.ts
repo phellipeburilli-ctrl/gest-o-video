@@ -7,27 +7,42 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const taskId = searchParams.get('taskId');
     const apiKey = process.env.CLICKUP_API_KEY || '';
-    const listId = process.env.CLICKUP_LIST_ID || '';
+    const rawListId = process.env.CLICKUP_LIST_ID || '';
+
+    // Parse multiple list IDs
+    const listIds = rawListId
+        .split(/[\n,\s]+/)
+        .map(id => id.trim())
+        .filter(id => id.length > 0);
 
     if (!apiKey) {
         return NextResponse.json({ error: 'ClickUp credentials missing' }, { status: 500 });
     }
 
     try {
-        // First, get the list statuses to understand status names
-        const listStatusesUrl = `${CLICKUP_API_URL}/list/${listId}`;
-        const listResponse = await fetch(listStatusesUrl, {
-            headers: { 'Authorization': apiKey },
-            cache: 'no-store',
-        });
-        const listData = await listResponse.json();
-        const statuses = listData.statuses || [];
-
-        // Create a map of status_id -> status_name
+        // First, get the list statuses from all lists
         const statusMap: { [id: string]: string } = {};
-        statuses.forEach((s: { id: string; status: string }) => {
-            statusMap[s.id] = s.status;
-        });
+        const allStatuses: string[] = [];
+
+        for (const listId of listIds) {
+            const listStatusesUrl = `${CLICKUP_API_URL}/list/${listId}`;
+            const listResponse = await fetch(listStatusesUrl, {
+                headers: { 'Authorization': apiKey },
+                cache: 'no-store',
+            });
+
+            if (listResponse.ok) {
+                const listData = await listResponse.json();
+                const statuses = listData.statuses || [];
+
+                statuses.forEach((s: { id: string; status: string }) => {
+                    statusMap[s.id] = s.status;
+                    if (!allStatuses.includes(s.status)) {
+                        allStatuses.push(s.status);
+                    }
+                });
+            }
+        }
 
         // If a specific task ID is provided, show detailed info for that task
         if (taskId) {
@@ -124,10 +139,11 @@ export async function GET(request: Request) {
         }));
 
         return NextResponse.json({
+            configuredListIds: listIds,
             totalTasksFetched: tasks.length,
             sampleSize: sampleTasks.length,
             statusMap,
-            availableStatuses: statuses.map((s: { status: string }) => s.status),
+            availableStatuses: allStatuses,
             sampleResults: results,
             hint: "Adicione ?taskId=XXXXX para ver detalhes de uma tarefa específica"
         });
