@@ -50,7 +50,9 @@ export class TimeTrackingService {
         }
 
         try {
-            // Build query with IN clause
+            // Convert array to PostgreSQL array format for ANY() clause
+            const taskIdsArray = `{${taskIds.join(',')}}`;
+
             const result = await sql`
                 SELECT
                     id,
@@ -63,7 +65,7 @@ export class TimeTrackingService {
                     event_timestamp,
                     created_at
                 FROM task_status_history
-                WHERE task_id = ANY(${taskIds})
+                WHERE task_id = ANY(${taskIdsArray}::text[])
                 ORDER BY task_id, event_timestamp ASC
             `;
 
