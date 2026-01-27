@@ -76,6 +76,14 @@ export interface ClickUpTask {
   url: string;
 }
 
+// Tempo por fase do workflow
+export interface TaskPhaseTime {
+  editingTimeMs: number;      // Tempo em EDITANDO
+  revisionTimeMs: number;     // Tempo em REVISÃO/ALTERAÇÃO
+  approvalTimeMs: number;     // Tempo em APROVADO (antes de concluir)
+  totalTimeMs: number;        // Tempo total (criação até conclusão)
+}
+
 export interface NormalizedTask {
   id: string;
   title: string;
@@ -89,6 +97,19 @@ export interface NormalizedTask {
   videoType?: string; // Derived from Custom Fields
   link?: string; // Derived from Custom Fields
   tags: string[];
+  phaseTime?: TaskPhaseTime; // Tempo por fase
+}
+
+// Métricas detalhadas por fase para cada editor
+export interface EditorPhaseMetrics {
+  avgEditingTimeHours: number;    // Média de tempo em edição
+  avgRevisionTimeHours: number;   // Média de tempo em revisão/alteração
+  avgApprovalTimeHours: number;   // Média de tempo até aprovação
+  avgTotalTimeHours: number;      // Média de tempo total
+  totalEditingTimeHours: number;  // Total de horas em edição
+  totalRevisionTimeHours: number; // Total de horas em revisão
+  videosWithRevision: number;     // Quantos vídeos tiveram revisão
+  revisionRate: number;           // Taxa de revisão (%)
 }
 
 export interface EditorStats {
@@ -99,6 +120,7 @@ export interface EditorStats {
   avgHoursPerVideo: number;
   avgLeadTimeHours: number; // Agilidade
   videos: NormalizedTask[];
+  phaseMetrics?: EditorPhaseMetrics; // Métricas por fase
 }
 
 export interface DashboardKPIs {
@@ -161,4 +183,15 @@ export const EDITING_START_STATUSES = [
 // Fim da edição: APROVADO ou CONCLUÍDO (o que vier primeiro)
 export const EDITING_END_STATUSES = [
   'APROVADO', 'CONCLUÍDO', 'CONCLUIDO', 'COMPLETED', 'DONE', 'CLOSED', 'FINALIZADO', 'ENTREGUE'
+];
+
+// Status de REVISÃO/ALTERAÇÃO
+export const REVISION_STATUSES = [
+  'REVISÃO', 'REVISAO', 'REVIEW', 'ALTERAÇÃO', 'ALTERACAO', 'ALTERAR',
+  'VIDEO: REVISÃO', 'VIDEO: ALTERAÇÃO', 'AJUSTE', 'CORREÇÃO', 'CORRECAO'
+];
+
+// Status de APROVADO
+export const APPROVAL_STATUSES = [
+  'APROVADO', 'APPROVED'
 ];

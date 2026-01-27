@@ -1,5 +1,9 @@
 import { sql } from '@vercel/postgres';
-import { TaskStatusEvent, TaskWorkingTime, TaskTimeInterval, WORKING_STATUSES, END_STATUSES, EDITING_START_STATUSES, EDITING_END_STATUSES } from '@/types';
+import {
+    TaskStatusEvent, TaskWorkingTime, TaskTimeInterval, TaskPhaseTime,
+    WORKING_STATUSES, END_STATUSES, EDITING_START_STATUSES, EDITING_END_STATUSES,
+    REVISION_STATUSES, APPROVAL_STATUSES
+} from '@/types';
 
 export class TimeTrackingService {
 
@@ -124,6 +128,20 @@ export class TimeTrackingService {
      */
     isEditingEndStatus(status: string): boolean {
         return EDITING_END_STATUSES.some(s => status.toUpperCase().includes(s));
+    }
+
+    /**
+     * Checks if a status is a revision/alteration status
+     */
+    isRevisionStatus(status: string): boolean {
+        return REVISION_STATUSES.some(s => status.toUpperCase().includes(s));
+    }
+
+    /**
+     * Checks if a status is approval status
+     */
+    isApprovalStatus(status: string): boolean {
+        return APPROVAL_STATUSES.some(s => status.toUpperCase().includes(s));
     }
 
     /**
@@ -329,6 +347,131 @@ export class TimeTrackingService {
         }
 
         return editingTimeMap;
+    }
+
+    /**
+     * Calculates time spent in each phase of the workflow
+     * Phases: EDITANDO, REVISÃO/ALTERAÇÃO, APROVADO
+     */
+    calculatePhaseTime(history: TaskStatusEvent[]): TaskPhaseTime {
+        const result: TaskPhaseTime = {
+            editingTimeMs: 0,
+            revisionTimeMs: 0,
+            approvalTimeMs: 0,
+            totalTimeMs: 0
+        };
+
+        if (history.length === 0) {
+            return result;
+        }
+
+        let currentPhaseStart: number | null = null;
+        let currentPhase: 'editing' | 'revision' | 'approval' | null = null;
+
+        for (let i = 0; i < history.length; i++) {
+            const event = history[i];
+            const newStatus = event.newStatus.toUpperCase();
+
+            // Determine the new phase
+            let newPhase: 'editing' | 'revision' | 'approval' | 'end' | null = null;
+
+            if (this.isEditingStartStatus(newStatus)) {
+                newPhase = 'editing';
+            } else if (this.isRevisionStatus(newStatus)) {
+                newPhase = 'revision';
+            } else if (this.isApprovalStatus(newStatus)) {
+                newPhase = 'approval';
+            } else if (this.isEndStatus(newStatus)) {
+                newPhase = 'end';
+            }
+
+            // If we were in a phase and changed, calculate time
+            if (currentPhaseStart !== null && currentPhase !== null && newPhase !== null) {
+                const duration = event.eventTimestamp - currentPhaseStart;
+
+                switch (currentPhase) {
+                    case 'editing':
+                        result.editingTimeMs += duration;
+                        break;
+                    case 'revision':
+                        result.revisionTimeMs += duration;
+                        break;
+                    case 'approval':
+                        result.approvalTimeMs += duration;
+                        break;
+                }
+            }
+
+            // Start new phase
+            if (newPhase && newPhase !== 'end') {
+                currentPhaseStart = event.eventTimestamp;
+                currentPhase = newPhase;
+            } else if (newPhase === 'end') {
+                currentPhaseStart = null;
+                currentPhase = null;
+            }
+        }
+
+        // If still in a phase, calculate ongoing time
+        if (currentPhaseStart !== null && currentPhase !== null) {
+            const now = Date.now();
+            const duration = now - currentPhaseStart;
+
+            switch (currentPhase) {
+                case 'editing':
+                    result.editingTimeMs += duration;
+                    break;
+                case 'revision':
+                    result.revisionTimeMs += duration;
+                    break;
+                case 'approval':
+                    result.approvalTimeMs += duration;
+                    break;
+            }
+        }
+
+        // Calculate total time from first to last event (or now if ongoing)
+        if (history.length > 0) {
+            const firstEvent = history[0];
+            const lastEvent = history[history.length - 1];
+            const isEnded = this.isEndStatus(lastEvent.newStatus.toUpperCase());
+
+            result.totalTimeMs = isEnded
+                ? lastEvent.eventTimestamp - firstEvent.eventTimestamp
+                : Date.now() - firstEvent.eventTimestamp;
+        }
+
+        return result;
+    }
+
+    /**
+     * Gets phase time for multiple tasks
+     * Returns a Map of taskId -> TaskPhaseTime
+     */
+    async getPhaseTimeForTasks(taskIds: string[]): Promise<Map<string, TaskPhaseTime>> {
+        const historyMap = await this.getStatusHistoryForTasks(taskIds);
+        const phaseTimeMap = new Map<string, TaskPhaseTime>();
+
+        for (const [taskId, history] of historyMap) {
+            const phaseTime = this.calculatePhaseTime(history);
+            phaseTimeMap.set(taskId, phaseTime);
+        }
+
+        // Ensure all requested task IDs have an entry
+        const defaultPhaseTime: TaskPhaseTime = {
+            editingTimeMs: 0,
+            revisionTimeMs: 0,
+            approvalTimeMs: 0,
+            totalTimeMs: 0
+        };
+
+        for (const taskId of taskIds) {
+            if (!phaseTimeMap.has(taskId)) {
+                phaseTimeMap.set(taskId, { ...defaultPhaseTime });
+            }
+        }
+
+        return phaseTimeMap;
     }
 }
 

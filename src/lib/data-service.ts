@@ -1,4 +1,4 @@
-import { ClickUpTask, NormalizedTask, EditorStats, DashboardKPIs } from '@/types';
+import { ClickUpTask, NormalizedTask, EditorStats, DashboardKPIs, TaskPhaseTime, EditorPhaseMetrics } from '@/types';
 
 export class DataService {
 
@@ -6,9 +6,9 @@ export class DataService {
      * Normalizes raw ClickUp tasks into a clean format.
      * Handles time conversions and field extraction.
      * @param tasks - Raw tasks from ClickUp API
-     * @param webhookTimeMap - Optional map of taskId -> working time in ms (from webhook history)
+     * @param phaseTimeMap - Optional map of taskId -> TaskPhaseTime (from webhook history or ClickUp API)
      */
-    normalizeTasks(tasks: ClickUpTask[], webhookTimeMap?: Map<string, number>): NormalizedTask[] {
+    normalizeTasks(tasks: ClickUpTask[], phaseTimeMap?: Map<string, TaskPhaseTime>): NormalizedTask[] {
         return tasks.map(task => {
             // 1. Extract Lead Time (Closed - Created)
             const created = parseInt(task.date_created);
@@ -17,16 +17,16 @@ export class DataService {
             // 2. Extract Editor (First Assignee)
             const assignee = task.assignees.length > 0 ? task.assignees[0] : null;
 
-            // 3. Extract Time Tracked
-            // Priority: Webhook history -> time_spent (native) -> Custom Field "Horas" -> Fallback
+            // 3. Get phase time data
+            const phaseTime = phaseTimeMap?.get(task.id);
+
+            // 4. Extract Time Tracked (use editing time from phases as primary)
             let timeTrackedMs = 0;
 
-            // First priority: Time calculated from webhook status history
-            if (webhookTimeMap && webhookTimeMap.has(task.id)) {
-                timeTrackedMs = webhookTimeMap.get(task.id)!;
-                if (timeTrackedMs > 0) {
-                    console.log(`[DataService] Task ${task.id}: Using webhook time = ${(timeTrackedMs / 3600000).toFixed(2)}h`);
-                }
+            // First priority: Editing time from phase data
+            if (phaseTime && phaseTime.editingTimeMs > 0) {
+                timeTrackedMs = phaseTime.editingTimeMs;
+                console.log(`[DataService] Task ${task.id}: Using phase editing time = ${(timeTrackedMs / 3600000).toFixed(2)}h`);
             }
 
             // Second priority: Native ClickUp time_spent
@@ -56,8 +56,7 @@ export class DataService {
 
             const timeTrackedHours = parseFloat((timeTrackedMs / (1000 * 60 * 60)).toFixed(2));
 
-            // 4. Custom Fields (Video Type)
-            // Look for a field matching "Tipo", "Type", "Categoria"
+            // 5. Custom Fields (Video Type)
             const typeField = task.custom_fields.find(f =>
                 ['tipo', 'type', 'categoria', 'category', 'formato'].some(key => f.name.toLowerCase().includes(key))
             );
@@ -65,14 +64,13 @@ export class DataService {
             let videoType = 'Outros';
             if (typeField) {
                 if (typeField.type_config?.options && typeof typeField.value === 'number') {
-                    // Dropdown index
                     videoType = typeField.type_config.options[typeField.value]?.name || 'Outros';
                 } else if (typeof typeField.value === 'string') {
                     videoType = typeField.value;
                 }
             }
 
-            // 5. Normalizing Status (Handle Portuguese)
+            // 6. Normalizing Status (Handle Portuguese)
             let normalizedStatus = task.status.status.toUpperCase();
             if (['CONCLUÍDO', 'CONCLUIDO', 'FINALIZADO', 'ENTREGUE', 'CLOSED', 'COMPLETE', 'DONE'].includes(normalizedStatus)) {
                 normalizedStatus = 'COMPLETED';
@@ -82,7 +80,7 @@ export class DataService {
                 normalizedStatus = 'REVIEW';
             }
 
-            // Use username, but prefer full name if available (some ClickUp users have both)
+            // Use username, but prefer full name if available
             const editorDisplayName = assignee
                 ? (assignee.username || `User ${assignee.id}`)
                 : 'Não Atribuído';
@@ -90,8 +88,8 @@ export class DataService {
             return {
                 id: task.id,
                 title: task.name,
-                status: normalizedStatus, // Use the normalized ENUM
-                rawStatus: task.status.status, // Keep original for display if needed
+                status: normalizedStatus,
+                rawStatus: task.status.status,
                 editorName: editorDisplayName,
                 editorId: assignee ? assignee.id : 0,
                 dateCreated: created,
@@ -99,15 +97,69 @@ export class DataService {
                 timeTrackedHours,
                 videoType,
                 tags: task.tags.map(t => t.name),
+                phaseTime: phaseTime || undefined,
             };
         });
+    }
+
+    /**
+     * Calculates phase metrics for an editor based on their completed videos
+     */
+    calculateEditorPhaseMetrics(videos: NormalizedTask[]): EditorPhaseMetrics {
+        const completedVideos = videos.filter(v => ['COMPLETED', 'CLOSED', 'DONE'].includes(v.status) && v.phaseTime);
+
+        if (completedVideos.length === 0) {
+            return {
+                avgEditingTimeHours: 0,
+                avgRevisionTimeHours: 0,
+                avgApprovalTimeHours: 0,
+                avgTotalTimeHours: 0,
+                totalEditingTimeHours: 0,
+                totalRevisionTimeHours: 0,
+                videosWithRevision: 0,
+                revisionRate: 0
+            };
+        }
+
+        let totalEditingMs = 0;
+        let totalRevisionMs = 0;
+        let totalApprovalMs = 0;
+        let totalTimeMs = 0;
+        let videosWithRevision = 0;
+
+        completedVideos.forEach(video => {
+            if (video.phaseTime) {
+                totalEditingMs += video.phaseTime.editingTimeMs;
+                totalRevisionMs += video.phaseTime.revisionTimeMs;
+                totalApprovalMs += video.phaseTime.approvalTimeMs;
+                totalTimeMs += video.phaseTime.totalTimeMs;
+
+                if (video.phaseTime.revisionTimeMs > 0) {
+                    videosWithRevision++;
+                }
+            }
+        });
+
+        const count = completedVideos.length;
+        const msToHours = (ms: number) => ms / (1000 * 60 * 60);
+
+        return {
+            avgEditingTimeHours: parseFloat((msToHours(totalEditingMs) / count).toFixed(2)),
+            avgRevisionTimeHours: parseFloat((msToHours(totalRevisionMs) / count).toFixed(2)),
+            avgApprovalTimeHours: parseFloat((msToHours(totalApprovalMs) / count).toFixed(2)),
+            avgTotalTimeHours: parseFloat((msToHours(totalTimeMs) / count).toFixed(2)),
+            totalEditingTimeHours: parseFloat(msToHours(totalEditingMs).toFixed(2)),
+            totalRevisionTimeHours: parseFloat(msToHours(totalRevisionMs).toFixed(2)),
+            videosWithRevision,
+            revisionRate: parseFloat(((videosWithRevision / count) * 100).toFixed(1))
+        };
     }
 
     /**
      * Aggregates normalized tasks into Editor KPIs.
      */
     calculateDashboardKPIs(tasks: NormalizedTask[]): DashboardKPIs {
-        const editorsMap = new Map<string, EditorStats>(); // Key: EditorName for simplicity, usually ID
+        const editorsMap = new Map<string, EditorStats>();
 
         // Initialize Global Counters
         let globalTotalVideos = 0;
@@ -116,9 +168,6 @@ export class DataService {
         const tasksByType: { [key: string]: number } = {};
 
         tasks.forEach(task => {
-            // Filter for Completed/Closed tasks only for Performance Metrics? 
-            // User asked for "Volume: Videos Entregues (Status Completed/Closed)"
-            // So we consider "Entregues" as closed or completed.
             const isCompleted = ['COMPLETED', 'CLOSED', 'DONE'].includes(task.status);
 
             if (!editorsMap.has(task.editorName)) {
@@ -155,18 +204,21 @@ export class DataService {
                 if (task.dateClosed) {
                     const leadTimeMs = task.dateClosed - task.dateCreated;
                     const leadTimeHours = leadTimeMs / (1000 * 60 * 60);
-                    // We store sum temporarily in avgLeadTimeHours to calculate avg later
                     stats.avgLeadTimeHours += leadTimeHours;
                 }
             }
         });
 
-        // Finalize Averages
+        // Finalize Averages and calculate phase metrics
         const editors = Array.from(editorsMap.values()).map(stats => {
             if (stats.totalVideos > 0) {
                 stats.avgHoursPerVideo = parseFloat((stats.totalHours / stats.totalVideos).toFixed(2));
-                stats.avgLeadTimeHours = parseFloat((stats.avgLeadTimeHours / stats.totalVideos).toFixed(2)); // Divide sum by count
+                stats.avgLeadTimeHours = parseFloat((stats.avgLeadTimeHours / stats.totalVideos).toFixed(2));
             }
+
+            // Calculate phase metrics for this editor
+            stats.phaseMetrics = this.calculateEditorPhaseMetrics(stats.videos);
+
             return stats;
         });
 

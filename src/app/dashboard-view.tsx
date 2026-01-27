@@ -14,7 +14,7 @@ import {
 } from 'recharts';
 import {
     Users, TrendingUp, Target, Award, Clock, Zap, BarChart3, GitCompare,
-    ArrowUp, ArrowDown, Calendar, RefreshCw, Timer
+    ArrowUp, ArrowDown, Calendar, RefreshCw, Timer, ClipboardList, Edit3, RotateCcw, CheckCircle
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { subDays } from 'date-fns';
@@ -73,7 +73,7 @@ function CustomTooltip({ active, payload, label, editorColors }: any) {
 export default function DashboardView({ initialData, lastUpdated }: DashboardViewProps) {
     const [isMounted, setIsMounted] = useState(false);
     const [timeRange, setTimeRange] = useState("all");
-    const [viewMode, setViewMode] = useState<'team' | 'compare'>('team');
+    const [viewMode, setViewMode] = useState<'team' | 'compare' | 'details'>('team');
     const [selectedEditors, setSelectedEditors] = useState<string[]>([]);
 
     useEffect(() => {
@@ -146,6 +146,13 @@ export default function DashboardView({ initialData, lastUpdated }: DashboardVie
             avgTimeToComplete: number;
             inProgress: number;
             color: string;
+            // Phase metrics
+            avgEditingTime: number;
+            avgRevisionTime: number;
+            totalEditingTime: number;
+            totalRevisionTime: number;
+            videosWithRevision: number;
+            revisionRate: number;
         }>();
 
         filteredVideos.forEach(video => {
@@ -158,7 +165,13 @@ export default function DashboardView({ initialData, lastUpdated }: DashboardVie
                     leadTime: 0,
                     avgTimeToComplete: 0,
                     inProgress: 0,
-                    color: editorColorMap.get(video.editorName) || '#6b7280'
+                    color: editorColorMap.get(video.editorName) || '#6b7280',
+                    avgEditingTime: 0,
+                    avgRevisionTime: 0,
+                    totalEditingTime: 0,
+                    totalRevisionTime: 0,
+                    videosWithRevision: 0,
+                    revisionRate: 0
                 });
             }
 
@@ -173,6 +186,15 @@ export default function DashboardView({ initialData, lastUpdated }: DashboardVie
                     const timeToComplete = (video.dateClosed - video.dateCreated) / (1000 * 60 * 60);
                     stats.leadTime += timeToComplete;
                 }
+
+                // Phase time metrics
+                if (video.phaseTime) {
+                    stats.totalEditingTime += video.phaseTime.editingTimeMs / (1000 * 60 * 60);
+                    stats.totalRevisionTime += video.phaseTime.revisionTimeMs / (1000 * 60 * 60);
+                    if (video.phaseTime.revisionTimeMs > 0) {
+                        stats.videosWithRevision += 1;
+                    }
+                }
             } else if (['IN PROGRESS', 'DOING', 'REVIEW'].includes(video.status)) {
                 stats.inProgress += 1;
             }
@@ -182,7 +204,10 @@ export default function DashboardView({ initialData, lastUpdated }: DashboardVie
         return Array.from(statsMap.values()).map(s => ({
             ...s,
             efficiency: s.videos > 0 ? s.hours / s.videos : 0,
-            avgTimeToComplete: s.videos > 0 ? s.leadTime / s.videos : 0
+            avgTimeToComplete: s.videos > 0 ? s.leadTime / s.videos : 0,
+            avgEditingTime: s.videos > 0 ? s.totalEditingTime / s.videos : 0,
+            avgRevisionTime: s.videos > 0 ? s.totalRevisionTime / s.videos : 0,
+            revisionRate: s.videos > 0 ? (s.videosWithRevision / s.videos) * 100 : 0
         })).sort((a, b) => b.videos - a.videos);
     }, [filteredVideos, editorColorMap]);
 
@@ -302,6 +327,20 @@ export default function DashboardView({ initialData, lastUpdated }: DashboardVie
                             >
                                 <GitCompare className="w-4 h-4 mr-2" />
                                 Comparar
+                            </Button>
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setViewMode('details')}
+                                className={cn(
+                                    "rounded-md px-4 transition-all",
+                                    viewMode === 'details'
+                                        ? "bg-blue-600 text-white hover:bg-blue-700"
+                                        : "text-slate-400 hover:text-white hover:bg-slate-700/50"
+                                )}
+                            >
+                                <ClipboardList className="w-4 h-4 mr-2" />
+                                Detalhes
                             </Button>
                         </div>
 
@@ -813,6 +852,259 @@ export default function DashboardView({ initialData, lastUpdated }: DashboardVie
                             <p className="text-sm mt-2">Clique nos nomes acima para selecionar</p>
                         </div>
                     )}
+                </>
+            )}
+
+            {/* DETAILS VIEW - Phase Metrics */}
+            {viewMode === 'details' && (
+                <>
+                    {/* Phase KPIs */}
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                        <Card className="bg-gradient-to-br from-blue-500/20 to-blue-500/5 border-blue-500/20 backdrop-blur">
+                            <CardContent className="p-4">
+                                <div className="flex items-start justify-between">
+                                    <div>
+                                        <p className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-1">Tempo Médio Edição</p>
+                                        <div className="flex items-baseline gap-1">
+                                            <span className="text-2xl font-bold text-white">
+                                                {formatHours(editorStats.reduce((acc, e) => acc + e.avgEditingTime, 0) / (editorStats.length || 1))}
+                                            </span>
+                                        </div>
+                                        <p className="text-xs text-slate-500 mt-1">média da equipe</p>
+                                    </div>
+                                    <Edit3 className="w-8 h-8 opacity-50 text-blue-500" />
+                                </div>
+                            </CardContent>
+                        </Card>
+                        <Card className="bg-gradient-to-br from-amber-500/20 to-amber-500/5 border-amber-500/20 backdrop-blur">
+                            <CardContent className="p-4">
+                                <div className="flex items-start justify-between">
+                                    <div>
+                                        <p className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-1">Tempo Médio Revisão</p>
+                                        <div className="flex items-baseline gap-1">
+                                            <span className="text-2xl font-bold text-white">
+                                                {formatHours(editorStats.reduce((acc, e) => acc + e.avgRevisionTime, 0) / (editorStats.length || 1))}
+                                            </span>
+                                        </div>
+                                        <p className="text-xs text-slate-500 mt-1">média da equipe</p>
+                                    </div>
+                                    <RotateCcw className="w-8 h-8 opacity-50 text-amber-500" />
+                                </div>
+                            </CardContent>
+                        </Card>
+                        <Card className="bg-gradient-to-br from-emerald-500/20 to-emerald-500/5 border-emerald-500/20 backdrop-blur">
+                            <CardContent className="p-4">
+                                <div className="flex items-start justify-between">
+                                    <div>
+                                        <p className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-1">Taxa de Revisão</p>
+                                        <div className="flex items-baseline gap-1">
+                                            <span className="text-2xl font-bold text-white">
+                                                {(editorStats.reduce((acc, e) => acc + e.revisionRate, 0) / (editorStats.length || 1)).toFixed(0)}
+                                            </span>
+                                            <span className="text-sm text-slate-400">%</span>
+                                        </div>
+                                        <p className="text-xs text-slate-500 mt-1">vídeos com alteração</p>
+                                    </div>
+                                    <CheckCircle className="w-8 h-8 opacity-50 text-emerald-500" />
+                                </div>
+                            </CardContent>
+                        </Card>
+                        <Card className="bg-gradient-to-br from-violet-500/20 to-violet-500/5 border-violet-500/20 backdrop-blur">
+                            <CardContent className="p-4">
+                                <div className="flex items-start justify-between">
+                                    <div>
+                                        <p className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-1">Total Horas Edição</p>
+                                        <div className="flex items-baseline gap-1">
+                                            <span className="text-2xl font-bold text-white">
+                                                {editorStats.reduce((acc, e) => acc + e.totalEditingTime, 0).toFixed(0)}
+                                            </span>
+                                            <span className="text-sm text-slate-400">h</span>
+                                        </div>
+                                        <p className="text-xs text-slate-500 mt-1">toda a equipe</p>
+                                    </div>
+                                    <Clock className="w-8 h-8 opacity-50 text-violet-500" />
+                                </div>
+                            </CardContent>
+                        </Card>
+                    </div>
+
+                    {/* Detailed Table */}
+                    <Card className="bg-slate-900/50 border-slate-800/50 backdrop-blur overflow-hidden">
+                        <CardHeader className="pb-2">
+                            <CardTitle className="text-base font-medium text-slate-200 flex items-center gap-2">
+                                <ClipboardList className="w-4 h-4 text-blue-500" />
+                                Métricas por Fase do Workflow
+                            </CardTitle>
+                            <CardDescription className="text-slate-500">
+                                Tempo em cada etapa: Edição → Revisão/Alteração → Aprovação
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent className="p-0">
+                            <div className="overflow-x-auto">
+                                <table className="w-full">
+                                    <thead className="bg-slate-800/50">
+                                        <tr>
+                                            <th className="text-left px-4 py-3 text-xs font-medium text-slate-400 uppercase tracking-wider">Editor</th>
+                                            <th className="text-center px-4 py-3 text-xs font-medium text-slate-400 uppercase tracking-wider">Vídeos</th>
+                                            <th className="text-center px-4 py-3 text-xs font-medium text-slate-400 uppercase tracking-wider">
+                                                <div className="flex items-center justify-center gap-1">
+                                                    <Edit3 className="w-3 h-3" />
+                                                    Tempo Edição
+                                                </div>
+                                            </th>
+                                            <th className="text-center px-4 py-3 text-xs font-medium text-slate-400 uppercase tracking-wider">
+                                                <div className="flex items-center justify-center gap-1">
+                                                    <RotateCcw className="w-3 h-3" />
+                                                    Tempo Revisão
+                                                </div>
+                                            </th>
+                                            <th className="text-center px-4 py-3 text-xs font-medium text-slate-400 uppercase tracking-wider">Taxa Revisão</th>
+                                            <th className="text-center px-4 py-3 text-xs font-medium text-slate-400 uppercase tracking-wider">Total Edição</th>
+                                            <th className="text-center px-4 py-3 text-xs font-medium text-slate-400 uppercase tracking-wider">Total Revisão</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-800/50">
+                                        {editorStats.map((editor, index) => (
+                                            <tr key={editor.name} className="hover:bg-slate-800/30 transition-colors">
+                                                <td className="px-4 py-3">
+                                                    <div className="flex items-center gap-3">
+                                                        <div
+                                                            className="w-3 h-8 rounded-full"
+                                                            style={{ backgroundColor: editor.color }}
+                                                        />
+                                                        <div>
+                                                            <p className="font-medium text-white">{editor.name}</p>
+                                                            <p className="text-xs text-slate-500">#{index + 1} no ranking</p>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                                <td className="text-center px-4 py-3">
+                                                    <span className="font-bold text-white text-lg">{editor.videos}</span>
+                                                </td>
+                                                <td className="text-center px-4 py-3">
+                                                    <span className="font-medium text-blue-400">{formatHours(editor.avgEditingTime)}</span>
+                                                    <span className="text-slate-500 text-xs ml-1">média</span>
+                                                </td>
+                                                <td className="text-center px-4 py-3">
+                                                    {editor.avgRevisionTime > 0 ? (
+                                                        <span className="font-medium text-amber-400">{formatHours(editor.avgRevisionTime)}</span>
+                                                    ) : (
+                                                        <span className="text-slate-600">-</span>
+                                                    )}
+                                                </td>
+                                                <td className="text-center px-4 py-3">
+                                                    {editor.revisionRate > 0 ? (
+                                                        <Badge
+                                                            variant="outline"
+                                                            className={cn(
+                                                                "border-0",
+                                                                editor.revisionRate < 30
+                                                                    ? "bg-emerald-500/10 text-emerald-400"
+                                                                    : editor.revisionRate < 60
+                                                                    ? "bg-amber-500/10 text-amber-400"
+                                                                    : "bg-red-500/10 text-red-400"
+                                                            )}
+                                                        >
+                                                            {editor.revisionRate.toFixed(0)}%
+                                                        </Badge>
+                                                    ) : (
+                                                        <Badge variant="outline" className="bg-emerald-500/10 text-emerald-400 border-0">
+                                                            0%
+                                                        </Badge>
+                                                    )}
+                                                </td>
+                                                <td className="text-center px-4 py-3 text-slate-300">
+                                                    {editor.totalEditingTime.toFixed(1)}h
+                                                </td>
+                                                <td className="text-center px-4 py-3 text-slate-300">
+                                                    {editor.totalRevisionTime > 0 ? `${editor.totalRevisionTime.toFixed(1)}h` : '-'}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                        {/* Team average row */}
+                                        <tr className="bg-slate-800/30 font-medium">
+                                            <td className="px-4 py-3">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="w-3 h-8 rounded-full bg-gradient-to-b from-blue-500 to-violet-500" />
+                                                    <p className="text-slate-300">Média da Equipe</p>
+                                                </div>
+                                            </td>
+                                            <td className="text-center px-4 py-3 text-slate-300">
+                                                {(editorStats.reduce((acc, e) => acc + e.videos, 0) / (editorStats.length || 1)).toFixed(1)}
+                                            </td>
+                                            <td className="text-center px-4 py-3 text-slate-300">
+                                                {formatHours(editorStats.reduce((acc, e) => acc + e.avgEditingTime, 0) / (editorStats.length || 1))}
+                                            </td>
+                                            <td className="text-center px-4 py-3 text-slate-300">
+                                                {formatHours(editorStats.reduce((acc, e) => acc + e.avgRevisionTime, 0) / (editorStats.length || 1))}
+                                            </td>
+                                            <td className="text-center px-4 py-3 text-slate-300">
+                                                {(editorStats.reduce((acc, e) => acc + e.revisionRate, 0) / (editorStats.length || 1)).toFixed(0)}%
+                                            </td>
+                                            <td className="text-center px-4 py-3 text-slate-300">
+                                                {editorStats.reduce((acc, e) => acc + e.totalEditingTime, 0).toFixed(1)}h
+                                            </td>
+                                            <td className="text-center px-4 py-3 text-slate-300">
+                                                {editorStats.reduce((acc, e) => acc + e.totalRevisionTime, 0).toFixed(1)}h
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </CardContent>
+                    </Card>
+
+                    {/* Stacked Bar Chart - Phase Time Distribution */}
+                    <Card className="mt-6 bg-slate-900/50 border-slate-800/50 backdrop-blur">
+                        <CardHeader className="pb-2">
+                            <CardTitle className="text-base font-medium text-slate-200 flex items-center gap-2">
+                                <BarChart3 className="w-4 h-4 text-blue-500" />
+                                Distribuição de Tempo por Editor
+                            </CardTitle>
+                            <CardDescription className="text-slate-500">
+                                Comparativo de tempo em edição vs revisão
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent className="h-[400px]">
+                            <ChartWrapper>
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <BarChart
+                                        data={editorStats.map(e => ({
+                                            name: e.name,
+                                            'Tempo Edição': e.avgEditingTime,
+                                            'Tempo Revisão': e.avgRevisionTime,
+                                            color: e.color
+                                        }))}
+                                        margin={{ top: 20, right: 30, left: 20, bottom: 60 }}
+                                    >
+                                        <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
+                                        <XAxis
+                                            dataKey="name"
+                                            stroke="#64748b"
+                                            tick={{ fill: '#94a3b8', fontSize: 11 }}
+                                            axisLine={false}
+                                            tickLine={false}
+                                            angle={-45}
+                                            textAnchor="end"
+                                            height={60}
+                                            interval={0}
+                                        />
+                                        <YAxis
+                                            stroke="#64748b"
+                                            tick={{ fill: '#94a3b8', fontSize: 11 }}
+                                            axisLine={false}
+                                            tickLine={false}
+                                            label={{ value: 'Horas', angle: -90, position: 'insideLeft', fill: '#64748b' }}
+                                        />
+                                        <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(255,255,255,0.05)' }} />
+                                        <Legend />
+                                        <Bar dataKey="Tempo Edição" fill="#3b82f6" stackId="a" radius={[0, 0, 0, 0]} />
+                                        <Bar dataKey="Tempo Revisão" fill="#f59e0b" stackId="a" radius={[4, 4, 0, 0]} />
+                                    </BarChart>
+                                </ResponsiveContainer>
+                            </ChartWrapper>
+                        </CardContent>
+                    </Card>
                 </>
             )}
         </div>

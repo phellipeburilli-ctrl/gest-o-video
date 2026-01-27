@@ -1,4 +1,4 @@
-import { ClickUpTask } from '@/types';
+import { ClickUpTask, TaskPhaseTime } from '@/types';
 import { AUDIOVISUAL_TEAM_IDS } from './constants';
 
 const CLICKUP_API_URL = 'https://api.clickup.com/api/v2';
@@ -182,6 +182,67 @@ export class ClickUpService {
         }
 
         return editingTimeMap;
+    }
+
+    /**
+     * Fetches phase time (editing, revision, approval) for multiple tasks from ClickUp Time in Status API
+     */
+    async fetchPhaseTimeForTasks(taskIds: string[]): Promise<Map<string, TaskPhaseTime>> {
+        const phaseTimeMap = new Map<string, TaskPhaseTime>();
+
+        // Process in batches to avoid rate limiting
+        const batchSize = 10;
+        for (let i = 0; i < taskIds.length; i += batchSize) {
+            const batch = taskIds.slice(i, i + batchSize);
+
+            const promises = batch.map(async (taskId) => {
+                const timeInStatus = await this.fetchTaskTimeInStatus(taskId);
+                if (timeInStatus) {
+                    const phaseTime: TaskPhaseTime = {
+                        editingTimeMs: 0,
+                        revisionTimeMs: 0,
+                        approvalTimeMs: 0,
+                        totalTimeMs: 0
+                    };
+
+                    for (const [status, data] of Object.entries(timeInStatus)) {
+                        const statusUpper = status.toUpperCase();
+                        const timeMs = (data as any).total_time?.by_minute * 60 * 1000 || (data as any).time || 0;
+
+                        // Tempo em EDITANDO
+                        if (statusUpper.includes('EDITANDO')) {
+                            phaseTime.editingTimeMs += timeMs;
+                        }
+                        // Tempo em REVISÃO/ALTERAÇÃO
+                        else if (statusUpper.includes('REVIS') || statusUpper.includes('ALTERA') || statusUpper.includes('AJUSTE') || statusUpper.includes('CORRE')) {
+                            phaseTime.revisionTimeMs += timeMs;
+                        }
+                        // Tempo em APROVADO
+                        else if (statusUpper.includes('APROVADO') || statusUpper.includes('APPROVED')) {
+                            phaseTime.approvalTimeMs += timeMs;
+                        }
+
+                        // Total inclui todos os status
+                        phaseTime.totalTimeMs += timeMs;
+                    }
+
+                    phaseTimeMap.set(taskId, phaseTime);
+
+                    if (phaseTime.editingTimeMs > 0 || phaseTime.revisionTimeMs > 0) {
+                        console.log(`[ClickUp] Task ${taskId}: editing=${(phaseTime.editingTimeMs / 3600000).toFixed(2)}h, revision=${(phaseTime.revisionTimeMs / 3600000).toFixed(2)}h`);
+                    }
+                }
+            });
+
+            await Promise.all(promises);
+
+            // Small delay between batches to avoid rate limiting
+            if (i + batchSize < taskIds.length) {
+                await new Promise(resolve => setTimeout(resolve, 100));
+            }
+        }
+
+        return phaseTimeMap;
     }
 }
 
