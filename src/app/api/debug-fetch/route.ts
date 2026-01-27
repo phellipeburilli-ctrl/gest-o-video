@@ -13,8 +13,10 @@ export async function GET(request: Request) {
         return NextResponse.json({
             error: 'ClickUp credentials missing',
             hasApiKey: !!apiKey,
-            hasListId: !!listId
-        }, { status: 500 });
+            hasListId: !!listId,
+            apiKeyPrefix: apiKey ? apiKey.substring(0, 10) + '...' : 'MISSING',
+            listId: listId || 'MISSING'
+        });
     }
 
     try {
