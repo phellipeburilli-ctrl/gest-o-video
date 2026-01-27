@@ -1,4 +1,5 @@
 import { ClickUpTask } from '@/types';
+import { AUDIOVISUAL_TEAM_IDS } from './constants';
 
 const CLICKUP_API_URL = 'https://api.clickup.com/api/v2';
 const MAX_PAGES = 10; // Safety limit for pagination
@@ -14,7 +15,7 @@ export class ClickUpService {
 
     /**
      * Fetches all tasks from the configured list, handling pagination.
-     * Filters strictly by 'AUDIOVISUAL' tag (case-insensitive).
+     * Filters by "AUDIOVISUAL" tag OR if assignee is in the AUDIOVISUAL_TEAM_IDS list.
      */
     async fetchTasks(): Promise<ClickUpTask[]> {
         if (!this.apiKey || !this.listId) {
@@ -66,16 +67,23 @@ export class ClickUpService {
 
             console.log(`[ClickUp] Total raw tasks fetched: ${allTasks.length}`);
 
-            // STRICT FILTER: Only tasks with "AUDIOVISUAL" tag
+            // MODIFIED FILTER: Check Tag OR Assignee ID
             const filteredTasks = allTasks.filter(task => {
+                // Condition 1: Has "AUDIOVISUAL" Tag
                 const hasTag = task.tags.some(tag => tag.name.toUpperCase() === 'AUDIOVISUAL');
-                if (!hasTag && allTasks.length < 50) { // Log reasons for rejection for first few if total is small
-                    console.log(`[ClickUp] Task '${task.name}' REJECTED. Tags: [${task.tags.map(t => t.name).join(', ')}]`);
+
+                // Condition 2: Assigned to one of the Team Members
+                const hasTeamMember = task.assignees.some(user => AUDIOVISUAL_TEAM_IDS.includes(user.id));
+
+                const isValid = hasTag || hasTeamMember;
+
+                if (!isValid && allTasks.length < 50) {
+                    // console.log(`[ClickUp] Task '${task.name}' REJECTED. Tags: [${task.tags.map(t => t.name).join(', ')}] Assignees: [${task.assignees.map(u => u.id).join(', ')}]`);
                 }
-                return hasTag;
+                return isValid;
             });
 
-            console.log(`[ClickUp] Valid tasks after filter: ${filteredTasks.length}`);
+            console.log(`[ClickUp] Valid tasks after filter (Tag OR Team Member): ${filteredTasks.length}`);
 
             return filteredTasks;
 

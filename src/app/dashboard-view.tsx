@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { DashboardKPIs, NormalizedTask, EditorStats } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -27,6 +27,17 @@ interface DashboardViewProps {
 
 export default function DashboardView({ initialData, lastUpdated }: DashboardViewProps) {
     const [timeRange, setTimeRange] = useState("all");
+    const [isMounted, setIsMounted] = useState(false);
+
+    useEffect(() => {
+        setIsMounted(true);
+    }, []);
+
+    // Prevent hydration mismatch for Recharts by only rendering charts after mount
+    const ChartWrapper = ({ children }: { children: React.ReactNode }) => {
+        if (!isMounted) return <div className="h-full w-full flex items-center justify-center text-slate-500 animate-pulse">Carregando gráfico...</div>;
+        return <>{children}</>;
+    };
 
     // TODO: Implement actual date filtering logic here if we had historical data in initialData.videos
     // For now, we display the calculated static snapshot.
@@ -113,33 +124,35 @@ export default function DashboardView({ initialData, lastUpdated }: DashboardVie
                         <CardTitle className="text-lg font-medium text-slate-200">Volume por Editor</CardTitle>
                     </CardHeader>
                     <CardContent className="h-[300px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={chartDataEditors} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
-                                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
-                                <XAxis
-                                    dataKey="name"
-                                    stroke="#94a3b8"
-                                    tick={{ fill: '#94a3b8', fontSize: 12 }}
-                                    axisLine={false}
-                                    tickLine={false}
-                                />
-                                <YAxis
-                                    stroke="#94a3b8"
-                                    tick={{ fill: '#94a3b8', fontSize: 12 }}
-                                    axisLine={false}
-                                    tickLine={false}
-                                />
-                                <Tooltip
-                                    cursor={{ fill: '#334155', opacity: 0.2 }}
-                                    contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', color: '#f8fafc' }}
-                                />
-                                <Bar dataKey="videos" radius={[4, 4, 0, 0]}>
-                                    {chartDataEditors.map((entry, index) => (
-                                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                                    ))}
-                                </Bar>
-                            </BarChart>
-                        </ResponsiveContainer>
+                        <ChartWrapper>
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={chartDataEditors} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                                    <XAxis
+                                        dataKey="name"
+                                        stroke="#94a3b8"
+                                        tick={{ fill: '#94a3b8', fontSize: 12 }}
+                                        axisLine={false}
+                                        tickLine={false}
+                                    />
+                                    <YAxis
+                                        stroke="#94a3b8"
+                                        tick={{ fill: '#94a3b8', fontSize: 12 }}
+                                        axisLine={false}
+                                        tickLine={false}
+                                    />
+                                    <Tooltip
+                                        cursor={{ fill: '#334155', opacity: 0.2 }}
+                                        contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', color: '#f8fafc' }}
+                                    />
+                                    <Bar dataKey="videos" radius={[4, 4, 0, 0]}>
+                                        {chartDataEditors.map((entry, index) => (
+                                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                        ))}
+                                    </Bar>
+                                </BarChart>
+                            </ResponsiveContainer>
+                        </ChartWrapper>
                     </CardContent>
                 </Card>
 
@@ -149,26 +162,28 @@ export default function DashboardView({ initialData, lastUpdated }: DashboardVie
                         <CardTitle className="text-lg font-medium text-slate-200">Tipos de Vídeo</CardTitle>
                     </CardHeader>
                     <CardContent className="h-[300px] flex justify-center items-center">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <PieChart>
-                                <Pie
-                                    data={chartDataTypes}
-                                    cx="50%"
-                                    cy="50%"
-                                    innerRadius={60}
-                                    outerRadius={80}
-                                    paddingAngle={5}
-                                    dataKey="value"
-                                >
-                                    {chartDataTypes.map((entry, index) => (
-                                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} stroke="none" />
-                                    ))}
-                                </Pie>
-                                <Tooltip
-                                    contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', color: '#f8fafc' }}
-                                />
-                            </PieChart>
-                        </ResponsiveContainer>
+                        <ChartWrapper>
+                            <ResponsiveContainer width="100%" height="100%">
+                                <PieChart>
+                                    <Pie
+                                        data={chartDataTypes}
+                                        cx="50%"
+                                        cy="50%"
+                                        innerRadius={60}
+                                        outerRadius={80}
+                                        paddingAngle={5}
+                                        dataKey="value"
+                                    >
+                                        {chartDataTypes.map((entry, index) => (
+                                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} stroke="none" />
+                                        ))}
+                                    </Pie>
+                                    <Tooltip
+                                        contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', color: '#f8fafc' }}
+                                    />
+                                </PieChart>
+                            </ResponsiveContainer>
+                        </ChartWrapper>
                         <div className="absolute pointer-events-none flex flex-col items-center justify-center">
                             <span className="text-2xl font-bold">{totalVideos}</span>
                             <span className="text-xs text-slate-500 uppercase">Total</span>
