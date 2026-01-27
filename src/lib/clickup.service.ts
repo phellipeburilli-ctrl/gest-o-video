@@ -10,10 +10,47 @@ const START_DATE_2026 = new Date('2026-01-01T00:00:00Z').getTime();
 export class ClickUpService {
     private apiKey: string;
     private listId: string;
+    private statusMap: Map<string, string> | null = null;
 
     constructor() {
         this.apiKey = process.env.CLICKUP_API_KEY || '';
         this.listId = process.env.CLICKUP_LIST_ID || '';
+    }
+
+    /**
+     * Fetches the status ID to name mapping from the list
+     */
+    async getStatusMap(): Promise<Map<string, string>> {
+        if (this.statusMap) {
+            return this.statusMap;
+        }
+
+        try {
+            const url = `${CLICKUP_API_URL}/list/${this.listId}`;
+            const response = await fetch(url, {
+                headers: { 'Authorization': this.apiKey },
+                cache: 'no-store',
+            });
+
+            if (!response.ok) {
+                console.error('[ClickUp] Failed to fetch list statuses');
+                return new Map();
+            }
+
+            const data = await response.json();
+            const statuses = data.statuses || [];
+
+            this.statusMap = new Map<string, string>();
+            for (const status of statuses) {
+                this.statusMap.set(status.id, status.status);
+                console.log(`[ClickUp] Status mapping: ${status.id} -> ${status.status}`);
+            }
+
+            return this.statusMap;
+        } catch (error) {
+            console.error('[ClickUp] Error fetching status map:', error);
+            return new Map();
+        }
     }
 
     /**
@@ -109,9 +146,9 @@ export class ClickUpService {
 
     /**
      * Fetches time in status history for a single task
-     * Returns the time spent in each status
+     * Returns the raw API response (which contains current_status with status IDs as keys)
      */
-    async fetchTaskTimeInStatus(taskId: string): Promise<{ [status: string]: { time: number; total_time: { by_minute: number; since: string } } } | null> {
+    async fetchTaskTimeInStatus(taskId: string): Promise<any | null> {
         if (!this.apiKey) {
             return null;
         }
@@ -133,7 +170,8 @@ export class ClickUpService {
             }
 
             const data = await response.json();
-            return data.current_status || data;
+            // Return the full response so we can access current_status
+            return data;
         } catch (error) {
             console.error(`[ClickUp] Failed to fetch time in status for task ${taskId}:`, error);
             return null;
@@ -147,22 +185,30 @@ export class ClickUpService {
     async fetchEditingTimeForTasks(taskIds: string[]): Promise<Map<string, number>> {
         const editingTimeMap = new Map<string, number>();
 
+        // First, get the status ID -> name mapping
+        const statusMap = await this.getStatusMap();
+
         // Process in batches to avoid rate limiting
         const batchSize = 10;
         for (let i = 0; i < taskIds.length; i += batchSize) {
             const batch = taskIds.slice(i, i + batchSize);
 
             const promises = batch.map(async (taskId) => {
-                const timeInStatus = await this.fetchTaskTimeInStatus(taskId);
-                if (timeInStatus) {
-                    // Look for "video: editando" or similar status
+                const rawData = await this.fetchTaskTimeInStatus(taskId);
+                if (rawData) {
+                    const statusData = rawData.current_status || rawData;
                     let editingTime = 0;
-                    for (const [status, data] of Object.entries(timeInStatus)) {
-                        const statusUpper = status.toUpperCase();
+
+                    for (const [statusId, data] of Object.entries(statusData)) {
+                        // Convert status ID to name
+                        const statusName = statusMap.get(statusId) || statusId;
+                        const statusUpper = statusName.toUpperCase();
+
                         // Conta tempo em EDITANDO (este é o tempo que queremos medir)
-                        if (statusUpper.includes('EDITANDO') || statusUpper.includes('VIDEO: EDITANDO')) {
-                            // time is in milliseconds
-                            const timeMs = (data as any).total_time?.by_minute * 60 * 1000 || (data as any).time || 0;
+                        if (statusUpper.includes('EDITANDO')) {
+                            const byMinute = (data as any).total_time?.by_minute;
+                            const timeValue = (data as any).time;
+                            const timeMs = byMinute ? byMinute * 60 * 1000 : (timeValue || 0);
                             editingTime += timeMs;
                         }
                     }
@@ -190,6 +236,10 @@ export class ClickUpService {
     async fetchPhaseTimeForTasks(taskIds: string[]): Promise<Map<string, TaskPhaseTime>> {
         const phaseTimeMap = new Map<string, TaskPhaseTime>();
 
+        // First, get the status ID -> name mapping
+        const statusMap = await this.getStatusMap();
+        console.log(`[ClickUp] Status map loaded with ${statusMap.size} statuses`);
+
         // Process in batches to avoid rate limiting
         const batchSize = 10;
         for (let i = 0; i < taskIds.length; i += batchSize) {
@@ -205,9 +255,22 @@ export class ClickUpService {
                         totalTimeMs: 0
                     };
 
-                    for (const [status, data] of Object.entries(timeInStatus)) {
-                        const statusUpper = status.toUpperCase();
-                        const timeMs = (data as any).total_time?.by_minute * 60 * 1000 || (data as any).time || 0;
+                    // The API returns data in current_status with status IDs as keys
+                    const statusData = timeInStatus.current_status || timeInStatus;
+
+                    for (const [statusId, data] of Object.entries(statusData)) {
+                        // Convert status ID to name using our map
+                        const statusName = statusMap.get(statusId) || statusId;
+                        const statusUpper = statusName.toUpperCase();
+
+                        // Calculate time: prefer total_time.by_minute (in minutes), fallback to time (in ms)
+                        const byMinute = (data as any).total_time?.by_minute;
+                        const timeValue = (data as any).time;
+                        const timeMs = byMinute ? byMinute * 60 * 1000 : (timeValue || 0);
+
+                        if (timeMs > 0) {
+                            console.log(`[ClickUp] Task ${taskId}: status "${statusName}" (${statusId}) = ${(timeMs / 3600000).toFixed(2)}h`);
+                        }
 
                         // Tempo em EDITANDO
                         if (statusUpper.includes('EDITANDO')) {
@@ -229,7 +292,7 @@ export class ClickUpService {
                     phaseTimeMap.set(taskId, phaseTime);
 
                     if (phaseTime.editingTimeMs > 0 || phaseTime.revisionTimeMs > 0) {
-                        console.log(`[ClickUp] Task ${taskId}: editing=${(phaseTime.editingTimeMs / 3600000).toFixed(2)}h, revision=${(phaseTime.revisionTimeMs / 3600000).toFixed(2)}h`);
+                        console.log(`[ClickUp] Task ${taskId}: TOTAL editing=${(phaseTime.editingTimeMs / 3600000).toFixed(2)}h, revision=${(phaseTime.revisionTimeMs / 3600000).toFixed(2)}h`);
                     }
                 }
             });
