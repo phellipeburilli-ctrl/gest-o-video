@@ -82,12 +82,17 @@ export class DataService {
                 normalizedStatus = 'REVIEW';
             }
 
+            // Use username, but prefer full name if available (some ClickUp users have both)
+            const editorDisplayName = assignee
+                ? (assignee.username || `User ${assignee.id}`)
+                : 'Não Atribuído';
+
             return {
                 id: task.id,
                 title: task.name,
                 status: normalizedStatus, // Use the normalized ENUM
                 rawStatus: task.status.status, // Keep original for display if needed
-                editorName: assignee ? assignee.username : 'Não Atribuído',
+                editorName: editorDisplayName,
                 editorId: assignee ? assignee.id : 0,
                 dateCreated: created,
                 dateClosed: closed,
