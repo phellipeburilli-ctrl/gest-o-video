@@ -572,7 +572,36 @@ const chartDataTimeline = useMemo(() => {
     </Card>
 </div>
 
-// ... (KpiCard component) ...
+
+function KpiCard({ title, value, subValue, suffix, icon: Icon, color, isHighlight, trend }: any) {
+    return (
+        <Card className={cn(
+            "bg-slate-900/50 border-slate-800 shadow-lg transition-all hover:-translate-y-1 hover:shadow-cyan-500/10",
+            isHighlight && "bg-gradient-to-br from-slate-900 to-slate-800 border-amber-500/20"
+        )}>
+            <CardContent className="p-6">
+                <div className="flex items-center justify-between mb-4">
+                    <p className="text-sm font-medium text-slate-400 uppercase tracking-wider">{title}</p>
+                    <div className={cn("p-2 rounded-lg bg-slate-950", color.replace('text-', 'bg-').replace('400', '950'))}>
+                        <Icon className={cn("w-5 h-5", color)} />
+                    </div>
+                </div>
+                <div className="flex items-baseline gap-1">
+                    <h3 className="text-3xl font-bold text-white">{value}</h3>
+                    {suffix && <span className="text-slate-500 text-sm font-medium">{suffix}</span>}
+                </div>
+                {subValue && <p className="text-sm text-slate-500 mt-1">{subValue}</p>}
+                {trend && (
+                    <div className="flex items-center gap-1 mt-2 text-xs font-medium text-emerald-400">
+                        <ArrowUpRight className="w-3 h-3" />
+                        {trend} <span className="text-slate-500 font-normal">vs mês passado</span>
+                    </div>
+                )}
+            </CardContent>
+        </Card>
+    )
+}
+
 
 function getStatusColor(status: string) {
     if (['COMPLETED', 'CLOSED', 'DONE'].includes(status)) return 'bg-emerald-500';
