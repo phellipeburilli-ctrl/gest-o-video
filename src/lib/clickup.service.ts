@@ -4,6 +4,9 @@ import { AUDIOVISUAL_TEAM_IDS } from './constants';
 const CLICKUP_API_URL = 'https://api.clickup.com/api/v2';
 const MAX_PAGES = 10; // Safety limit for pagination
 
+// Data de início para filtrar tarefas (1 de Janeiro de 2026)
+const START_DATE_2026 = new Date('2026-01-01T00:00:00Z').getTime();
+
 export class ClickUpService {
     private apiKey: string;
     private listId: string;
@@ -29,7 +32,8 @@ export class ClickUpService {
 
         try {
             while (hasMore && page < MAX_PAGES) {
-                const url = `${CLICKUP_API_URL}/list/${this.listId}/task?page=${page}&include_closed=true&subtasks=true`;
+                // Filtrar tarefas criadas a partir de 1 de Janeiro de 2026
+                const url = `${CLICKUP_API_URL}/list/${this.listId}/task?page=${page}&include_closed=true&subtasks=true&date_created_gt=${START_DATE_2026}`;
                 console.log(`[ClickUp] Fetching page ${page}... URL: ${url}`);
 
                 const response = await fetch(url, {
@@ -101,6 +105,81 @@ export class ClickUpService {
             console.error('Failed to fetch ClickUp tasks:', error);
             return [];
         }
+    }
+
+    /**
+     * Fetches time in status history for a single task
+     * Returns the time spent in each status
+     */
+    async fetchTaskTimeInStatus(taskId: string): Promise<{ [status: string]: { time: number; total_time: { by_minute: number; since: string } } } | null> {
+        if (!this.apiKey) {
+            return null;
+        }
+
+        try {
+            const url = `${CLICKUP_API_URL}/task/${taskId}/time_in_status`;
+            const response = await fetch(url, {
+                method: 'GET',
+                headers: {
+                    'Authorization': this.apiKey,
+                    'Content-Type': 'application/json',
+                },
+                cache: 'no-store',
+            });
+
+            if (!response.ok) {
+                console.error(`[ClickUp] Time in status error for task ${taskId}: ${response.status}`);
+                return null;
+            }
+
+            const data = await response.json();
+            return data.current_status || data;
+        } catch (error) {
+            console.error(`[ClickUp] Failed to fetch time in status for task ${taskId}:`, error);
+            return null;
+        }
+    }
+
+    /**
+     * Fetches time in status for multiple tasks and returns a map of taskId -> editing time in ms
+     * Editing time = time in "video: editando" status
+     */
+    async fetchEditingTimeForTasks(taskIds: string[]): Promise<Map<string, number>> {
+        const editingTimeMap = new Map<string, number>();
+
+        // Process in batches to avoid rate limiting
+        const batchSize = 10;
+        for (let i = 0; i < taskIds.length; i += batchSize) {
+            const batch = taskIds.slice(i, i + batchSize);
+
+            const promises = batch.map(async (taskId) => {
+                const timeInStatus = await this.fetchTaskTimeInStatus(taskId);
+                if (timeInStatus) {
+                    // Look for "video: editando" or similar status
+                    let editingTime = 0;
+                    for (const [status, data] of Object.entries(timeInStatus)) {
+                        const statusUpper = status.toUpperCase();
+                        if (statusUpper.includes('EDITANDO') || statusUpper.includes('VIDEO: EDITANDO')) {
+                            // time is in milliseconds
+                            editingTime += (data as any).total_time?.by_minute * 60 * 1000 || (data as any).time || 0;
+                        }
+                    }
+                    editingTimeMap.set(taskId, editingTime);
+                    if (editingTime > 0) {
+                        console.log(`[ClickUp] Task ${taskId}: editing time = ${(editingTime / 3600000).toFixed(2)}h`);
+                    }
+                }
+            });
+
+            await Promise.all(promises);
+
+            // Small delay between batches to avoid rate limiting
+            if (i + batchSize < taskIds.length) {
+                await new Promise(resolve => setTimeout(resolve, 100));
+            }
+        }
+
+        return editingTimeMap;
     }
 }
 

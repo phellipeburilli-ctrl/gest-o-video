@@ -12,23 +12,40 @@ export default async function Home() {
   // 1. Fetch tasks from ClickUp API
   const tasks = await clickupService.fetchTasks();
 
-  // 2. Get task IDs and fetch editing time from webhook history (EDITANDO -> APROVADO)
+  // 2. Get task IDs and fetch editing time
   const taskIds = tasks.map(t => t.id);
-  console.log(`[Home] Fetching editing time for ${taskIds.length} tasks from webhook history...`);
+  console.log(`[Home] Fetching editing time for ${taskIds.length} tasks...`);
 
-  let webhookTimeMap: Map<string, number>;
+  let editingTimeMap: Map<string, number>;
   try {
-    // Use getEditingTimeForTasks to calculate time from VIDEO: EDITANDO to APROVADO
-    webhookTimeMap = await timeTrackingService.getEditingTimeForTasks(taskIds);
-    const tasksWithWebhookTime = Array.from(webhookTimeMap.values()).filter(t => t > 0).length;
-    console.log(`[Home] Found editing time data for ${tasksWithWebhookTime} tasks`);
+    // First try: Get editing time from webhook history (EDITANDO -> APROVADO)
+    editingTimeMap = await timeTrackingService.getEditingTimeForTasks(taskIds);
+    const tasksWithWebhookTime = Array.from(editingTimeMap.values()).filter(t => t > 0).length;
+    console.log(`[Home] Found ${tasksWithWebhookTime} tasks with webhook time data`);
+
+    // Second try: For tasks without webhook data, use ClickUp Time in Status API
+    const tasksWithoutTime = taskIds.filter(id => !editingTimeMap.has(id) || editingTimeMap.get(id) === 0);
+    if (tasksWithoutTime.length > 0) {
+      console.log(`[Home] Fetching time in status from ClickUp API for ${tasksWithoutTime.length} tasks...`);
+      const clickupTimeMap = await clickupService.fetchEditingTimeForTasks(tasksWithoutTime);
+
+      // Merge ClickUp data into the map
+      for (const [taskId, time] of clickupTimeMap) {
+        if (time > 0 && (!editingTimeMap.has(taskId) || editingTimeMap.get(taskId) === 0)) {
+          editingTimeMap.set(taskId, time);
+        }
+      }
+
+      const tasksWithClickUpTime = Array.from(clickupTimeMap.values()).filter(t => t > 0).length;
+      console.log(`[Home] Found ${tasksWithClickUpTime} additional tasks with ClickUp time data`);
+    }
   } catch (error) {
-    console.error('[Home] Error fetching editing time data, using fallback:', error);
-    webhookTimeMap = new Map();
+    console.error('[Home] Error fetching editing time data:', error);
+    editingTimeMap = new Map();
   }
 
-  // 3. Normalize tasks with webhook time data
-  const normalized = dataService.normalizeTasks(tasks, webhookTimeMap);
+  // 3. Normalize tasks with editing time data
+  const normalized = dataService.normalizeTasks(tasks, editingTimeMap);
 
   // 4. Calculate KPIs
   const kpis = dataService.calculateDashboardKPIs(normalized);
