@@ -29,6 +29,7 @@ export class ClickUpService {
         try {
             while (hasMore && page < MAX_PAGES) {
                 const url = `${CLICKUP_API_URL}/list/${this.listId}/task?page=${page}&include_closed=true&subtasks=true`;
+                console.log(`[ClickUp] Fetching page ${page}... URL: ${url}`);
 
                 const response = await fetch(url, {
                     method: 'GET',
@@ -40,11 +41,20 @@ export class ClickUpService {
                 });
 
                 if (!response.ok) {
+                    const body = await response.text();
+                    console.error(`[ClickUp] API Error: ${response.status} ${response.statusText} - Body: ${body}`);
                     throw new Error(`ClickUp API Error: ${response.statusText}`);
                 }
 
                 const data = await response.json();
                 const tasks: ClickUpTask[] = data.tasks || [];
+
+                console.log(`[ClickUp] Page ${page} fetched. Count: ${tasks.length}`);
+
+                if (tasks.length > 0) {
+                    // DEBUG: Log tags of the first task to verify format
+                    console.log(`[ClickUp] Debug - First Task Tags:`, JSON.stringify(tasks[0].tags));
+                }
 
                 if (tasks.length === 0) {
                     hasMore = false;
@@ -54,12 +64,18 @@ export class ClickUpService {
                 }
             }
 
-            // STRICT FILTER: Only tasks with "AUDIOVISUAL" tag
-            const filteredTasks = allTasks.filter(task =>
-                task.tags.some(tag => tag.name.toUpperCase() === 'AUDIOVISUAL')
-            );
+            console.log(`[ClickUp] Total raw tasks fetched: ${allTasks.length}`);
 
-            console.log(`Fetched ${allTasks.length} total tasks. Filtered down to ${filteredTasks.length} AUDIOVISUAL tasks.`);
+            // STRICT FILTER: Only tasks with "AUDIOVISUAL" tag
+            const filteredTasks = allTasks.filter(task => {
+                const hasTag = task.tags.some(tag => tag.name.toUpperCase() === 'AUDIOVISUAL');
+                if (!hasTag && allTasks.length < 50) { // Log reasons for rejection for first few if total is small
+                    console.log(`[ClickUp] Task '${task.name}' REJECTED. Tags: [${task.tags.map(t => t.name).join(', ')}]`);
+                }
+                return hasTag;
+            });
+
+            console.log(`[ClickUp] Valid tasks after filter: ${filteredTasks.length}`);
 
             return filteredTasks;
 
