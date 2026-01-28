@@ -887,14 +887,33 @@ function TeamDetailView({ teamInfo, formatHours, calculateScore, ChartWrapper }:
                     const strengths: string[] = [];
                     const improvements: string[] = [];
 
-                    if (vsVideos > 20) strengths.push('Alto volume');
-                    else if (vsVideos < -30) improvements.push('Aumentar entregas');
+                    // Volume de entregas
+                    if (vsVideos > 15) strengths.push('Alto volume de entregas');
+                    else if (vsVideos < -20) improvements.push('Aumentar volume de entregas');
 
-                    if (vsEfficiency < -20) strengths.push('Boa eficiência');
-                    else if (vsEfficiency > 30) improvements.push('Melhorar eficiência');
+                    // Eficiência (tempo por vídeo) - menor é melhor
+                    if (vsEfficiency < -15) strengths.push('Boa eficiência');
+                    else if (vsEfficiency > 20) improvements.push('Melhorar eficiência');
 
-                    if (vsAlteration < -20) strengths.push('Poucos retrabalhos');
-                    else if (vsAlteration > 30) improvements.push('Reduzir alterações');
+                    // Taxa de alteração (retrabalho) - menor é melhor
+                    if (editor.alterationRate < 15) strengths.push('Poucos retrabalhos');
+                    else if (editor.alterationRate > 35) improvements.push('Reduzir alterações');
+                    else if (vsAlteration > 25) improvements.push('Atenção aos retrabalhos');
+
+                    // Tempo de edição - se muito acima da média
+                    if (editor.avgEditingTime > 0 && teamAvg.avgEditingTime > 0) {
+                        const vsEditTime = ((editor.avgEditingTime - teamAvg.avgEditingTime) / teamAvg.avgEditingTime) * 100;
+                        if (vsEditTime < -15) strengths.push('Edição rápida');
+                        else if (vsEditTime > 25) improvements.push('Acelerar edição');
+                    }
+
+                    // Se não tem nada, adiciona baseado na posição geral
+                    if (strengths.length === 0 && improvements.length === 0) {
+                        if (editor.videos > 0) {
+                            if (score >= 60) strengths.push('Performance consistente');
+                            else improvements.push('Buscar mais consistência');
+                        }
+                    }
 
                     return (
                         <Card
@@ -968,8 +987,8 @@ function TeamDetailView({ teamInfo, formatHours, calculateScore, ChartWrapper }:
                                     </div>
                                 </div>
 
-                                {/* Strengths & Improvements */}
-                                {!editor.isLeader && (strengths.length > 0 || improvements.length > 0) && (
+                                {/* Strengths & Improvements - mostrar para todos */}
+                                {(strengths.length > 0 || improvements.length > 0) && (
                                     <>
                                         <Separator className="bg-slate-800" />
                                         <div className="space-y-2">
