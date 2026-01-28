@@ -111,39 +111,29 @@ export class DataService {
         if (completedVideos.length === 0) {
             return {
                 avgEditingTimeHours: 0,
-                avgRevisionTimeHours: 0,
                 avgAlterationTimeHours: 0,
                 avgApprovalTimeHours: 0,
                 avgTotalTimeHours: 0,
                 totalEditingTimeHours: 0,
-                totalRevisionTimeHours: 0,
                 totalAlterationTimeHours: 0,
-                videosWithRevision: 0,
                 videosWithAlteration: 0,
-                revisionRate: 0,
                 alterationRate: 0
             };
         }
 
         let totalEditingMs = 0;
-        let totalRevisionMs = 0;
         let totalAlterationMs = 0;
         let totalApprovalMs = 0;
         let totalTimeMs = 0;
-        let videosWithRevision = 0;
         let videosWithAlteration = 0;
 
         completedVideos.forEach(video => {
             if (video.phaseTime) {
                 totalEditingMs += video.phaseTime.editingTimeMs;
-                totalRevisionMs += video.phaseTime.revisionTimeMs;
                 totalAlterationMs += video.phaseTime.alterationTimeMs || 0;
                 totalApprovalMs += video.phaseTime.approvalTimeMs;
                 totalTimeMs += video.phaseTime.totalTimeMs;
 
-                if (video.phaseTime.revisionTimeMs > 0) {
-                    videosWithRevision++;
-                }
                 if (video.phaseTime.alterationTimeMs && video.phaseTime.alterationTimeMs > 0) {
                     videosWithAlteration++;
                 }
@@ -155,16 +145,12 @@ export class DataService {
 
         return {
             avgEditingTimeHours: parseFloat((msToHours(totalEditingMs) / count).toFixed(2)),
-            avgRevisionTimeHours: parseFloat((msToHours(totalRevisionMs) / count).toFixed(2)),
             avgAlterationTimeHours: parseFloat((msToHours(totalAlterationMs) / count).toFixed(2)),
             avgApprovalTimeHours: parseFloat((msToHours(totalApprovalMs) / count).toFixed(2)),
             avgTotalTimeHours: parseFloat((msToHours(totalTimeMs) / count).toFixed(2)),
             totalEditingTimeHours: parseFloat(msToHours(totalEditingMs).toFixed(2)),
-            totalRevisionTimeHours: parseFloat(msToHours(totalRevisionMs).toFixed(2)),
             totalAlterationTimeHours: parseFloat(msToHours(totalAlterationMs).toFixed(2)),
-            videosWithRevision,
             videosWithAlteration,
-            revisionRate: parseFloat(((videosWithRevision / count) * 100).toFixed(1)),
             alterationRate: parseFloat(((videosWithAlteration / count) * 100).toFixed(1))
         };
     }
