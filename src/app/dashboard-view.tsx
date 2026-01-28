@@ -67,14 +67,10 @@ interface EditorStat {
     inProgress: number;
     color: string;
     avgEditingTime: number;
-    avgRevisionTime: number;
     avgAlterationTime: number;
     totalEditingTime: number;
-    totalRevisionTime: number;
     totalAlterationTime: number;
-    videosWithRevision: number;
     videosWithAlteration: number;
-    revisionRate: number;
     alterationRate: number;
     isLeader: boolean;
     teamId: string;
@@ -142,14 +138,10 @@ export default function DashboardView({ initialData, lastUpdated }: DashboardVie
                     inProgress: 0,
                     color: getEditorColorByName(video.editorName), // Usa cor fixa do editor
                     avgEditingTime: 0,
-                    avgRevisionTime: 0,
                     avgAlterationTime: 0,
                     totalEditingTime: 0,
-                    totalRevisionTime: 0,
                     totalAlterationTime: 0,
-                    videosWithRevision: 0,
                     videosWithAlteration: 0,
-                    revisionRate: 0,
                     alterationRate: 0,
                     isLeader: isLeader(editorId),
                     teamId: team?.id || 'unknown'
@@ -170,9 +162,7 @@ export default function DashboardView({ initialData, lastUpdated }: DashboardVie
 
                 if (video.phaseTime) {
                     stats.totalEditingTime += video.phaseTime.editingTimeMs / (1000 * 60 * 60);
-                    stats.totalRevisionTime += video.phaseTime.revisionTimeMs / (1000 * 60 * 60);
                     stats.totalAlterationTime += (video.phaseTime.alterationTimeMs || 0) / (1000 * 60 * 60);
-                    if (video.phaseTime.revisionTimeMs > 0) stats.videosWithRevision += 1;
                     if (video.phaseTime.alterationTimeMs && video.phaseTime.alterationTimeMs > 0) stats.videosWithAlteration += 1;
                 }
             } else if (['IN PROGRESS', 'DOING', 'REVIEW', 'VIDEO: EDITANDO', 'PARA REVISÃO', 'REVISANDO', 'ALTERAÇÃO'].includes(video.status.toUpperCase())) {
@@ -185,9 +175,7 @@ export default function DashboardView({ initialData, lastUpdated }: DashboardVie
             efficiency: s.videos > 0 ? s.hours / s.videos : 0,
             avgTimeToComplete: s.videos > 0 ? s.leadTime / s.videos : 0,
             avgEditingTime: s.videos > 0 ? s.totalEditingTime / s.videos : 0,
-            avgRevisionTime: s.videos > 0 ? s.totalRevisionTime / s.videos : 0,
             avgAlterationTime: s.videos > 0 ? s.totalAlterationTime / s.videos : 0,
-            revisionRate: s.videos > 0 ? (s.videosWithRevision / s.videos) * 100 : 0,
             alterationRate: s.videos > 0 ? (s.videosWithAlteration / s.videos) * 100 : 0
         })).sort((a, b) => b.videos - a.videos);
     }, [filteredVideos]);
@@ -202,7 +190,6 @@ export default function DashboardView({ initialData, lastUpdated }: DashboardVie
                 videos: number;
                 efficiency: number;
                 avgEditingTime: number;
-                revisionRate: number;
                 alterationRate: number;
                 leadTime: number;
             };
@@ -220,7 +207,6 @@ export default function DashboardView({ initialData, lastUpdated }: DashboardVie
             const avgVideos = editorsForAvg.reduce((acc, e) => acc + e.videos, 0) / (editorsForAvg.length || 1);
             const avgEfficiency = editorsForAvg.reduce((acc, e) => acc + e.efficiency, 0) / (editorsForAvg.length || 1);
             const avgEditingTime = editorsForAvg.reduce((acc, e) => acc + e.avgEditingTime, 0) / (editorsForAvg.length || 1);
-            const avgRevisionRate = editorsForAvg.reduce((acc, e) => acc + e.revisionRate, 0) / (editorsForAvg.length || 1);
             const avgAlterationRate = editorsForAvg.reduce((acc, e) => acc + e.alterationRate, 0) / (editorsForAvg.length || 1);
             const avgLeadTime = editorsForAvg.reduce((acc, e) => acc + e.avgTimeToComplete, 0) / (editorsForAvg.length || 1);
 
@@ -232,7 +218,6 @@ export default function DashboardView({ initialData, lastUpdated }: DashboardVie
                     videos: avgVideos,
                     efficiency: avgEfficiency,
                     avgEditingTime: avgEditingTime,
-                    revisionRate: avgRevisionRate,
                     alterationRate: avgAlterationRate,
                     leadTime: avgLeadTime
                 },
@@ -655,8 +640,7 @@ interface TeamDetailViewProps {
             videos: number;
             efficiency: number;
             avgEditingTime: number;
-            revisionRate: number;
-            alterationRate: number;
+                    alterationRate: number;
             leadTime: number;
         };
         totalVideos: number;
@@ -1029,45 +1013,38 @@ function TeamDetailView({ teamInfo, formatHours, calculateScore, ChartWrapper }:
                                     <th className="text-left px-4 py-3 text-xs font-medium text-slate-400 uppercase">Editor</th>
                                     <th className="text-center px-4 py-3 text-xs font-medium text-slate-400 uppercase">Vídeos</th>
                                     <th className="text-center px-4 py-3 text-xs font-medium text-slate-400 uppercase">Tempo Edição</th>
-                                    <th className="text-center px-4 py-3 text-xs font-medium text-slate-400 uppercase">Tempo Revisão</th>
-                                    <th className="text-center px-4 py-3 text-xs font-medium text-slate-400 uppercase">Taxa Revisão</th>
                                     <th className="text-center px-4 py-3 text-xs font-medium text-slate-400 uppercase">Taxa Alteração</th>
                                     <th className="text-center px-4 py-3 text-xs font-medium text-slate-400 uppercase">Eficiência</th>
+                                    <th className="text-center px-4 py-3 text-xs font-medium text-slate-400 uppercase">Horas Totais</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-800/50">
-                                {editors.map((editor, idx) => (
+                                {editors.map((editor) => (
                                     <tr key={editor.name} className="hover:bg-slate-800/30">
                                         <td className="px-4 py-3">
                                             <div className="flex items-center gap-2">
+                                                <div
+                                                    className="w-3 h-3 rounded-full"
+                                                    style={{ backgroundColor: editor.color }}
+                                                />
                                                 <span className="text-white font-medium">{editor.name}</span>
                                                 {editor.isLeader && <Crown className="w-4 h-4 text-amber-500" />}
                                             </div>
                                         </td>
                                         <td className="text-center px-4 py-3 font-bold text-white">{editor.videos}</td>
                                         <td className="text-center px-4 py-3 text-blue-400">{formatHours(editor.avgEditingTime)}</td>
-                                        <td className="text-center px-4 py-3 text-amber-400">{formatHours(editor.avgRevisionTime)}</td>
                                         <td className="text-center px-4 py-3">
                                             <Badge variant="outline" className={cn(
                                                 "border-0",
-                                                editor.revisionRate < 30 ? "bg-emerald-500/10 text-emerald-400" :
-                                                editor.revisionRate < 60 ? "bg-amber-500/10 text-amber-400" :
-                                                "bg-red-500/10 text-red-400"
-                                            )}>
-                                                {editor.revisionRate.toFixed(0)}%
-                                            </Badge>
-                                        </td>
-                                        <td className="text-center px-4 py-3">
-                                            <Badge variant="outline" className={cn(
-                                                "border-0",
-                                                editor.alterationRate < 30 ? "bg-emerald-500/10 text-emerald-400" :
-                                                editor.alterationRate < 60 ? "bg-orange-500/10 text-orange-400" :
+                                                editor.alterationRate < 20 ? "bg-emerald-500/10 text-emerald-400" :
+                                                editor.alterationRate < 40 ? "bg-amber-500/10 text-amber-400" :
                                                 "bg-red-500/10 text-red-400"
                                             )}>
                                                 {editor.alterationRate.toFixed(0)}%
                                             </Badge>
                                         </td>
                                         <td className="text-center px-4 py-3 text-slate-300">{editor.efficiency.toFixed(1)}h/vídeo</td>
+                                        <td className="text-center px-4 py-3 text-slate-300">{editor.hours.toFixed(0)}h</td>
                                     </tr>
                                 ))}
                                 {/* Team Average Row */}
@@ -1075,10 +1052,9 @@ function TeamDetailView({ teamInfo, formatHours, calculateScore, ChartWrapper }:
                                     <td className="px-4 py-3 text-slate-300">Média da Equipe</td>
                                     <td className="text-center px-4 py-3 text-slate-300">{teamAvg.videos.toFixed(1)}</td>
                                     <td className="text-center px-4 py-3 text-slate-300">{formatHours(teamAvg.avgEditingTime)}</td>
-                                    <td className="text-center px-4 py-3 text-slate-300">-</td>
-                                    <td className="text-center px-4 py-3 text-slate-300">{teamAvg.revisionRate.toFixed(0)}%</td>
                                     <td className="text-center px-4 py-3 text-slate-300">{teamAvg.alterationRate.toFixed(0)}%</td>
                                     <td className="text-center px-4 py-3 text-slate-300">{teamAvg.efficiency.toFixed(1)}h/vídeo</td>
+                                    <td className="text-center px-4 py-3 text-slate-300">-</td>
                                 </tr>
                             </tbody>
                         </table>
