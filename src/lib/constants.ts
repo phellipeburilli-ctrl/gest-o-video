@@ -37,12 +37,10 @@ export const TEAM_VSL: Team = {
     description: 'Video Sales Letter - Vídeos de vendas longos',
     color: '#8b5cf6', // violet
     members: [
-        { id: 96683006, name: 'Luma Viegas', role: 'leader', color: '#a855f7' },    // purple
         { id: 248675265, name: 'Nathan Soares', role: 'editor', color: '#6366f1' }, // indigo
         { id: 84070913, name: 'Victor Mazzine', role: 'editor', color: '#8b5cf6' }, // violet
     ],
-    editorIds: [248675265, 84070913], // Média só entre Nathan e Mazzine
-    leaderId: 96683006, // Luma é líder
+    editorIds: [248675265, 84070913], // Média entre Nathan e Mazzine
 };
 
 // ============================================
@@ -197,4 +195,5 @@ export const EXCLUDED_USER_IDS = [
     89254046,     // Leonardo Cruz
     230468665,    // Denner Silva
     2142641513,   // Isaías Deodato
+    96683006,     // Luma Viegas (desligada)
 ];
