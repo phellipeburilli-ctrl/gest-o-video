@@ -53,6 +53,17 @@ export default async function Home() {
   // 3. Normalize tasks with phase time data
   const normalized = dataService.normalizeTasks(tasks, phaseTimeMap);
 
+  // Debug: Log status distribution
+  const statusCounts: Record<string, number> = {};
+  normalized.forEach(t => {
+    statusCounts[t.status] = (statusCounts[t.status] || 0) + 1;
+  });
+  console.log(`[Home] Status distribution:`, statusCounts);
+
+  // Debug: Count completed tasks
+  const completedTasks = normalized.filter(t => t.status === 'COMPLETED');
+  console.log(`[Home] Completed tasks: ${completedTasks.length}`);
+
   // 4. Calculate KPIs
   const kpis = dataService.calculateDashboardKPIs(normalized);
 

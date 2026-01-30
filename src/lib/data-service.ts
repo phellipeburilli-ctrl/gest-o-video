@@ -72,7 +72,8 @@ export class DataService {
 
             // 6. Normalizing Status (Handle Portuguese)
             let normalizedStatus = task.status.status.toUpperCase();
-            if (['CONCLUÍDO', 'CONCLUIDO', 'FINALIZADO', 'ENTREGUE', 'CLOSED', 'COMPLETE', 'DONE'].includes(normalizedStatus)) {
+            // APROVADO e CONCLUÍDO são considerados como COMPLETED
+            if (['APROVADO', 'CONCLUÍDO', 'CONCLUIDO', 'FINALIZADO', 'ENTREGUE', 'CLOSED', 'COMPLETE', 'DONE'].includes(normalizedStatus)) {
                 normalizedStatus = 'COMPLETED';
             } else if (['EM ANDAMENTO', 'ANDAMENTO', 'FAZENDO', 'DOING', 'IN PROGRESS', 'RUNNING'].includes(normalizedStatus)) {
                 normalizedStatus = 'IN PROGRESS';
