@@ -2,18 +2,47 @@ import { NextResponse } from 'next/server';
 
 const CLICKUP_API_URL = 'https://api.clickup.com/api/v2';
 
+// Extract numeric list ID from various ClickUp URL formats
+function extractListId(input: string): string {
+    // Format: 6-901305659240-1 → extract 901305659240
+    const dashMatch = input.match(/^6-(\d+)-\d+$/);
+    if (dashMatch) {
+        return dashMatch[1];
+    }
+
+    // If it's already a pure number, return as-is
+    if (/^\d+$/.test(input)) {
+        return input;
+    }
+
+    // Format: 2y8rd-58473 (encoded format - may not work directly)
+    // Return as-is and let ClickUp API handle it
+    return input;
+}
+
 export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const withDateFilter = searchParams.get('withDateFilter') === 'true';
 
     const apiKey = process.env.CLICKUP_API_KEY || '';
-    const listId = process.env.CLICKUP_LIST_ID || '';
+    const rawListId = process.env.CLICKUP_LIST_ID || '';
+
+    // Parse multiple list IDs and extract numeric IDs
+    const listIds = rawListId
+        .split(/[\n,\s]+/)
+        .map(id => id.trim())
+        .filter(id => id.length > 0)
+        .map(id => extractListId(id));
+
+    const listId = listIds[0] || ''; // Use first one for testing
 
     if (!apiKey || !listId) {
         return NextResponse.json({
             error: 'ClickUp credentials missing',
             hasApiKey: !!apiKey,
             hasListId: !!listId,
+            rawListIdValue: rawListId || 'EMPTY',
+            parsedListIds: listIds,
             apiKeyPrefix: apiKey ? apiKey.substring(0, 10) + '...' : 'MISSING',
             listId: listId || 'MISSING'
         });
@@ -93,6 +122,11 @@ export async function GET(request: Request) {
         } : null;
 
         return NextResponse.json({
+            configDebug: {
+                rawEnvValue: rawListId,
+                parsedListIds: listIds,
+                usedListId: listId
+            },
             listInfo: {
                 id: listData.id,
                 name: listData.name,

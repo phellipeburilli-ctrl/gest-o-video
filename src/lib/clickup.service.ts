@@ -7,6 +7,24 @@ const MAX_PAGES = 10; // Safety limit for pagination
 // Data de início para filtrar tarefas (1 de Janeiro de 2026)
 const START_DATE_2026 = new Date('2026-01-01T00:00:00Z').getTime();
 
+// Extract numeric list ID from various ClickUp URL formats
+function extractListId(input: string): string {
+    // Format: 6-901305659240-1 → extract 901305659240
+    const dashMatch = input.match(/^6-(\d+)-\d+$/);
+    if (dashMatch) {
+        return dashMatch[1];
+    }
+
+    // If it's already a pure number, return as-is
+    if (/^\d+$/.test(input)) {
+        return input;
+    }
+
+    // Format: 2y8rd-58473 (encoded format - may not work directly)
+    // Return as-is and let ClickUp API handle it
+    return input;
+}
+
 export class ClickUpService {
     private apiKey: string;
     private listIds: string[];
@@ -19,7 +37,8 @@ export class ClickUpService {
         this.listIds = rawListId
             .split(/[\n,\s]+/)
             .map(id => id.trim())
-            .filter(id => id.length > 0);
+            .filter(id => id.length > 0)
+            .map(id => extractListId(id)); // Extract numeric IDs
         console.log(`[ClickUp] Initialized with ${this.listIds.length} list IDs: ${this.listIds.join(', ')}`);
     }
 
