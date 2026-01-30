@@ -189,11 +189,12 @@ export const AUDIOVISUAL_TEAM_IDS = ALL_TEAMS.flatMap(team =>
 
 // IDs de usuários a serem EXCLUÍDOS das métricas (não são editores)
 export const EXCLUDED_USER_IDS = [
-    55083349,     // Exclusão anterior
+    55083349,     // Phellipe Burilli Santos (Capitão)
     224505888,    // João Pedro Xavier Millen Penedo
     230468751,    // Jamile Castro Félix
     89254046,     // Leonardo Cruz
     230468665,    // Denner Silva
     2142641513,   // Isaías Deodato
     96683006,     // Luma Viegas (desligada)
+    90754261,     // Leandro Lima
 ];
