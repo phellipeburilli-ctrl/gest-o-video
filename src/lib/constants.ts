@@ -197,4 +197,9 @@ export const EXCLUDED_USER_IDS = [
     2142641513,   // Isaías Deodato
     96683006,     // Luma Viegas (desligada)
     90754261,     // Leandro Lima
+    2142641319,   // Felipe Godoy
+    90786590,     // Leonardo Nunes Guedes da Cunha
+    105993146,    // Mariana Freitas
+    2142013941,   // Pedro Santiago
+    111937859,    // Pedro Henrique da Costa
 ];
