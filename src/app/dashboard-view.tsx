@@ -92,20 +92,39 @@ export default function DashboardView({ initialData, lastUpdated }: DashboardVie
     };
 
     // --- FILTER BY TIME RANGE ---
+    // Filtra por dateClosed (data de conclusão) para mostrar vídeos ENTREGUES no período
     const filteredVideos = useMemo(() => {
         let videos = initialData.editors.flatMap(e => e.videos);
         const now = new Date();
 
         if (timeRange === "month") {
+            // Início do mês atual
             const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-            videos = videos.filter(v => new Date(v.dateCreated).getTime() >= startOfMonth.getTime());
+            startOfMonth.setHours(0, 0, 0, 0);
+            videos = videos.filter(v => {
+                if (!v.dateClosed) return false;
+                return v.dateClosed >= startOfMonth.getTime();
+            });
         } else if (timeRange === "quarter") {
-            const startOfQuarter = subDays(now, 90);
-            videos = videos.filter(v => new Date(v.dateCreated).getTime() >= startOfQuarter.getTime());
+            // Início do trimestre atual
+            const currentQuarter = Math.floor(now.getMonth() / 3);
+            const startOfQuarter = new Date(now.getFullYear(), currentQuarter * 3, 1);
+            startOfQuarter.setHours(0, 0, 0, 0);
+            videos = videos.filter(v => {
+                if (!v.dateClosed) return false;
+                return v.dateClosed >= startOfQuarter.getTime();
+            });
         } else if (timeRange === "week") {
-            const startOfWeek = subDays(now, 7);
-            videos = videos.filter(v => new Date(v.dateCreated).getTime() >= startOfWeek.getTime());
+            // Início da semana atual (domingo)
+            const startOfWeek = new Date(now);
+            startOfWeek.setDate(now.getDate() - now.getDay()); // Volta para domingo
+            startOfWeek.setHours(0, 0, 0, 0);
+            videos = videos.filter(v => {
+                if (!v.dateClosed) return false;
+                return v.dateClosed >= startOfWeek.getTime();
+            });
         }
+        // "all" não filtra, mostra todos os vídeos concluídos
 
         return videos;
     }, [initialData, timeRange]);
