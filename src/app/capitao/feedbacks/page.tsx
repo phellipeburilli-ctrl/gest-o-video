@@ -41,6 +41,7 @@ export default async function FeedbacksPage() {
     const allFrameIoUrls = [...new Set(tasksWithAlteration.flatMap(d => d.frameIoLinks))].slice(0, 3);
 
     console.log(`[Feedbacks] Extracting comments from ${allFrameIoUrls.length} Frame.io links...`);
+    console.log(`[Feedbacks] BROWSERLESS_API_KEY configured: ${!!process.env.BROWSERLESS_API_KEY}`);
 
     // Extract Frame.io comments using Browserless
     let frameIoFeedbacks: Awaited<ReturnType<typeof extractMultipleFrameIoComments>> = [];

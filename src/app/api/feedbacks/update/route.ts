@@ -34,6 +34,7 @@ export async function POST(request: Request) {
         const allFrameIoUrls = [...new Set(tasksWithAlteration.flatMap(d => d.frameIoLinks))];
 
         console.log(`[Feedbacks Update] Found ${allFrameIoUrls.length} unique Frame.io URLs`);
+        console.log(`[Feedbacks Update] BROWSERLESS_API_KEY configured: ${!!process.env.BROWSERLESS_API_KEY}`);
 
         // Extract comments from all URLs (no limit for manual update)
         let frameIoFeedbacks: Awaited<ReturnType<typeof extractMultipleFrameIoComments>> = [];
