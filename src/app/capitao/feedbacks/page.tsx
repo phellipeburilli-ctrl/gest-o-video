@@ -37,8 +37,9 @@ export default async function FeedbacksPage() {
     // Get ALL Frame.io links from tasks with alterations
     const tasksWithAlteration = feedbackData.filter(d => d.hadAlteration && d.frameIoLinks.length > 0);
 
-    // Collect unique Frame.io URLs (limit to 3 to fit in 60s Vercel timeout)
-    const allFrameIoUrls = [...new Set(tasksWithAlteration.flatMap(d => d.frameIoLinks))].slice(0, 3);
+    // Collect unique Frame.io URLs (limit to 1 to fit in 60s Vercel timeout)
+    // Use the "Atualizar" button to extract more
+    const allFrameIoUrls = [...new Set(tasksWithAlteration.flatMap(d => d.frameIoLinks))].slice(0, 1);
 
     console.log(`[Feedbacks] Extracting comments from ${allFrameIoUrls.length} Frame.io links...`);
     console.log(`[Feedbacks] BROWSERLESS_API_KEY configured: ${!!process.env.BROWSERLESS_API_KEY}`);
