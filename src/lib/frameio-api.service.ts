@@ -97,8 +97,8 @@ export async function extractFrameIoComments(frameIoUrl: string): Promise<FrameI
                     }
                 ],
                 gotoOptions: {
-                    waitUntil: 'networkidle0',
-                    timeout: 15000
+                    waitUntil: 'networkidle2',
+                    timeout: 45000
                 }
             })
         });
