@@ -334,14 +334,60 @@ export class ClickUpService {
     }
 
     /**
+     * Extracts Frame.io links from a comment's structured data
+     * ClickUp stores links as bookmark or link_mention objects, not plain text
+     */
+    private extractFrameIoLinksFromComment(comment: any): string[] {
+        const links: string[] = [];
+        const frameIoPattern = /(?:frame\.io|f\.io)/i;
+
+        // comment.comment is an array of structured elements
+        const commentElements = comment.comment || [];
+
+        for (const element of commentElements) {
+            // Check bookmark type (embedded links with preview)
+            if (element.type === 'bookmark' && element.bookmark?.url) {
+                const url = element.bookmark.url;
+                if (frameIoPattern.test(url)) {
+                    links.push(url);
+                    console.log(`[ClickUp] Found Frame.io bookmark: ${url}`);
+                }
+            }
+
+            // Check link_mention type (inline links)
+            if (element.type === 'link_mention' && element.link_mention?.url) {
+                const url = element.link_mention.url;
+                if (frameIoPattern.test(url)) {
+                    links.push(url);
+                    console.log(`[ClickUp] Found Frame.io link_mention: ${url}`);
+                }
+            }
+        }
+
+        // Also check comment_text for plain text links (fallback)
+        const commentText = comment.comment_text || '';
+        // Match f.io/xxx patterns without https:// prefix
+        const plainLinkRegex = /(?:https?:\/\/)?(?:[\w-]+\.)?(?:frame\.io|f\.io)\/[\w-]+/gi;
+        const textMatches = commentText.match(plainLinkRegex) || [];
+
+        for (const match of textMatches) {
+            // Normalize to full URL
+            const fullUrl = match.startsWith('http') ? match : `https://${match}`;
+            if (!links.includes(fullUrl)) {
+                links.push(fullUrl);
+                console.log(`[ClickUp] Found Frame.io in text: ${fullUrl}`);
+            }
+        }
+
+        return links;
+    }
+
+    /**
      * Fetches tasks with their comments and extracts Frame.io links
      * Only searches in COMMENTS (not description)
      */
     async fetchTasksWithFrameIoLinks(tasks: ClickUpTask[]): Promise<{ task: ClickUpTask; frameIoLinks: string[]; comments: any[] }[]> {
         const results: { task: ClickUpTask; frameIoLinks: string[]; comments: any[] }[] = [];
-        
-        // Improved regex to catch all Frame.io URL variations
-        const frameIoRegex = /https?:\/\/(?:[\w-]+\.)?(?:frame\.io|f\.io)\/[^\s<>"'\])}]+/gi;
 
         console.log(`[ClickUp] Searching Frame.io links in ${tasks.length} tasks...`);
 
@@ -356,26 +402,18 @@ export class ClickUpService {
 
                 console.log(`[ClickUp] Task "${task.name}" (${task.id}): ${comments.length} comments`);
 
-                // Search ONLY in comments
+                // Extract links from each comment's structured data
                 for (const comment of comments) {
-                    const commentText = comment.comment_text || '';
-                    
-                    // Log first 200 chars of each comment for debugging
-                    if (commentText.length > 0) {
-                        console.log(`[ClickUp] Comment preview: ${commentText.substring(0, 200)}...`);
-                    }
-
-                    const commentLinks = commentText.match(frameIoRegex) || [];
-                    
-                    if (commentLinks.length > 0) {
-                        console.log(`[ClickUp] Found ${commentLinks.length} Frame.io links in task "${task.name}": ${commentLinks.join(', ')}`);
-                    }
-
+                    const commentLinks = this.extractFrameIoLinksFromComment(comment);
                     allLinks.push(...commentLinks);
                 }
 
                 // Remove duplicates
                 const uniqueLinks = [...new Set(allLinks)];
+
+                if (uniqueLinks.length > 0) {
+                    console.log(`[ClickUp] Task "${task.name}": found ${uniqueLinks.length} unique Frame.io links`);
+                }
 
                 return {
                     task,
