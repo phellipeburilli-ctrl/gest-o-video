@@ -161,10 +161,34 @@ export function FeedbacksView({ tasks, feedbackData, currentAlterationTasks, las
         setEditorData(null);
 
         try {
+            // Get Frame.io links from this editor's tasks with alterations
+            const editorIdNum = Number(editorId);
+            const editorTasksData = feedbackData.filter(data => {
+                const assignee = data.task.assignees?.[0];
+                return assignee && assignee.id === editorIdNum;
+            });
+
+            const tasksWithAlteration = editorTasksData.filter(d => d.hadAlteration && d.frameIoLinks.length > 0);
+            const frameIoLinks = tasksWithAlteration.flatMap(d =>
+                d.frameIoLinks.map(url => ({
+                    url,
+                    taskName: d.task.name
+                }))
+            );
+
+            const editorInfo = editorStatsMap[editorId];
+
             const response = await fetch('/api/feedbacks/editor', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ editorId })
+                body: JSON.stringify({
+                    editorId,
+                    frameIoLinks,
+                    editorName: editorInfo?.name,
+                    editorColor: editorInfo?.color,
+                    totalTasks: editorInfo?.totalCompleted || 0,
+                    tasksWithAlteration: editorInfo?.withAlteration || 0
+                })
             });
 
             const data = await response.json();
