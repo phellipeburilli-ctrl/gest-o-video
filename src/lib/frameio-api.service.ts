@@ -103,7 +103,7 @@ export async function extractFrameIoComments(frameIoUrl: string, timeoutMs: numb
                 ],
                 gotoOptions: {
                     waitUntil: 'networkidle2',
-                    timeout: 25000
+                    timeout: 45000
                 }
             }),
             signal: controller.signal

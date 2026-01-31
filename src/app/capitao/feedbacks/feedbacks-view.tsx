@@ -103,6 +103,7 @@ export function FeedbacksView({ tasks, feedbackData, currentAlterationTasks, las
     const [isLoading, setIsLoading] = useState(false);
     const [editorData, setEditorData] = useState<EditorFeedbackData | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [progress, setProgress] = useState<{ current: number; total: number } | null>(null);
 
     // Calculate stats by editor
     const editorStatsMap: Record<string, EditorStats> = {};
@@ -160,10 +161,10 @@ export function FeedbacksView({ tasks, feedbackData, currentAlterationTasks, las
         setIsLoading(true);
         setError(null);
         setEditorData(null);
+        setProgress(null);
 
         try {
             // Get Frame.io links from this editor's tasks with alterations
-            // Use string comparison to ensure match (editorId comes as string)
             const editorTasksData = feedbackData.filter(data => {
                 const assignee = data.task.assignees?.[0];
                 return assignee && String(assignee.id) === editorId;
@@ -180,30 +181,78 @@ export function FeedbacksView({ tasks, feedbackData, currentAlterationTasks, las
 
             const editorInfo = editorStatsMap[editorId];
 
-            const response = await fetch('/api/feedbacks/editor', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    editorId,
-                    frameIoLinks,
-                    editorName: editorInfo?.name,
-                    editorColor: editorInfo?.color,
+            // Process links one by one with progress
+            const allComments: Array<{ text: string; category: string; timestamp: string; taskName: string }> = [];
+            const errorPatterns: Record<string, number> = {};
+            let linksProcessed = 0;
+            let linksFailed = 0;
+
+            setProgress({ current: 0, total: frameIoLinks.length });
+
+            for (let i = 0; i < frameIoLinks.length; i++) {
+                const link = frameIoLinks[i];
+                setProgress({ current: i + 1, total: frameIoLinks.length });
+
+                try {
+                    const response = await fetch('/api/feedbacks/extract-link', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ url: link.url, taskName: link.taskName })
+                    });
+
+                    const data = await response.json();
+
+                    if (data.success && data.comments) {
+                        linksProcessed++;
+                        allComments.push(...data.comments);
+
+                        // Aggregate error patterns
+                        Object.entries(data.errorPatterns || {}).forEach(([cat, count]) => {
+                            errorPatterns[cat] = (errorPatterns[cat] || 0) + (count as number);
+                        });
+                    } else {
+                        linksFailed++;
+                    }
+                } catch {
+                    linksFailed++;
+                }
+            }
+
+            // Calculate percentages
+            const totalErrors = Object.values(errorPatterns).reduce((a, b) => a + b, 0);
+            const topErrors = Object.entries(errorPatterns)
+                .filter(([_, count]) => count > 0)
+                .sort((a, b) => b[1] - a[1])
+                .map(([category, count]) => ({
+                    category,
+                    count,
+                    percentage: totalErrors > 0 ? Math.round((count / totalErrors) * 100) : 0
+                }));
+
+            setEditorData({
+                editor: {
+                    id: editorId,
+                    name: editorInfo?.name || 'Unknown',
+                    color: editorInfo?.color || '#666'
+                },
+                stats: {
                     totalTasks: editorInfo?.totalCompleted || 0,
-                    tasksWithAlteration: editorInfo?.withAlteration || 0
-                })
+                    tasksWithAlteration: editorInfo?.withAlteration || 0,
+                    alterationRate: editorInfo?.alterationRate || 0,
+                    totalFrameIoLinks: frameIoLinks.length,
+                    linksProcessed,
+                    linksFailed,
+                    totalFeedbacks: totalErrors
+                },
+                errorPatterns: topErrors,
+                recentComments: allComments.slice(0, 15)
             });
 
-            const data = await response.json();
-
-            if (data.success) {
-                setEditorData(data);
-            } else {
-                setError(data.error || 'Erro ao carregar feedbacks');
-            }
         } catch (err) {
             setError('Erro de conexão');
         } finally {
             setIsLoading(false);
+            setProgress(null);
         }
     };
 
@@ -280,7 +329,20 @@ export function FeedbacksView({ tasks, feedbackData, currentAlterationTasks, las
                         <div className="bg-[#12121a] border border-gray-800 rounded-xl p-12 text-center">
                             <Loader2 className="w-12 h-12 text-purple-400 mx-auto mb-4 animate-spin" />
                             <p className="text-gray-400">Extraindo feedbacks do Frame.io...</p>
-                            <p className="text-gray-600 text-sm mt-2">Isso pode levar alguns segundos</p>
+                            {progress && (
+                                <>
+                                    <div className="w-full max-w-xs mx-auto mt-4 bg-gray-800 rounded-full h-2">
+                                        <div
+                                            className="bg-purple-500 h-2 rounded-full transition-all duration-300"
+                                            style={{ width: `${(progress.current / progress.total) * 100}%` }}
+                                        />
+                                    </div>
+                                    <p className="text-purple-400 text-sm mt-2">
+                                        {progress.current} de {progress.total} links
+                                    </p>
+                                </>
+                            )}
+                            <p className="text-gray-600 text-xs mt-2">Processando um link por vez para garantir precisão</p>
                         </div>
                     )}
 

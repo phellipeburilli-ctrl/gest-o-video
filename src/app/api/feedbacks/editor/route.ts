@@ -68,15 +68,15 @@ export async function POST(request: Request) {
         let linksProcessed = 0;
         let linksFailed = 0;
 
-        // Process in batches of 5, each link has 30s timeout
-        const results = await processBatch(allLinks, 5, async (linkData: any) => {
+        // Process 1 link at a time with longer timeout for reliability
+        const results = await processBatch(allLinks, 1, async (linkData: any) => {
             const url = typeof linkData === 'string' ? linkData : linkData.url;
             const taskName = typeof linkData === 'string' ? 'Unknown' : (linkData.taskName || 'Unknown');
 
             console.log(`[Editor Feedback] Extracting: ${url}`);
 
             try {
-                const feedback = await extractFrameIoComments(url, 25000); // 25s timeout per link
+                const feedback = await extractFrameIoComments(url, 50000); // 50s timeout per link
 
                 if (feedback.error) {
                     linksFailed++;
