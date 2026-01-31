@@ -91,11 +91,9 @@ export async function extractFrameIoComments(frameIoUrl: string): Promise<FrameI
             },
             body: JSON.stringify({
                 url: url,
-                waitFor: 5000, // Wait for JS to load
                 elements: [
                     {
-                        selector: 'body',
-                        timeout: 10000
+                        selector: 'body'
                     }
                 ],
                 gotoOptions: {
@@ -163,8 +161,9 @@ function parseCommentsFromText(text: string): FrameIoComment[] {
                 let author = 'Unknown';
                 for (let j = i - 1; j >= Math.max(0, i - 4); j--) {
                     // Skip common UI elements
-                    if (!['Reply', 'Oldest', 'Newest', 'Completed', 'Commenter', 'All comments'].includes(lines[j])
+                    if (!['Reply', 'Oldest', 'Newest', 'Completed', 'Commenter', 'All comments', 'Edited', 'Read by'].includes(lines[j])
                         && !lines[j].match(/^\d+[hmd]$/) // time ago like "20h"
+                        && !lines[j].match(/^Read by \d+/) // "Read by 2 people"
                         && lines[j].length > 1
                         && lines[j].length < 50) {
                         author = lines[j];
