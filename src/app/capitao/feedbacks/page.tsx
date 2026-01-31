@@ -37,10 +37,10 @@ export default async function FeedbacksPage() {
     // Get tasks with alterations that have Frame.io links
     const tasksWithAlteration = feedbackData.filter(d => d.hadAlteration && d.frameIoLinks.length > 0);
 
-    // Collect Frame.io URLs to extract comments (limit to 15 for performance/cost)
+    // Collect Frame.io URLs to extract comments (limit to 5 to avoid timeout)
     const frameIoUrls = tasksWithAlteration
         .flatMap(d => d.frameIoLinks)
-        .slice(0, 15);
+        .slice(0, 5);
 
     console.log(`[Feedbacks] Extracting comments from ${frameIoUrls.length} Frame.io links...`);
 

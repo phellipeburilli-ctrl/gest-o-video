@@ -97,8 +97,8 @@ export async function extractFrameIoComments(frameIoUrl: string): Promise<FrameI
                     }
                 ],
                 gotoOptions: {
-                    waitUntil: 'networkidle2',
-                    timeout: 30000
+                    waitUntil: 'networkidle0',
+                    timeout: 15000
                 }
             })
         });
@@ -202,20 +202,17 @@ function parseCommentsFromText(text: string): FrameIoComment[] {
 export async function extractMultipleFrameIoComments(urls: string[]): Promise<FrameIoFeedback[]> {
     if (urls.length === 0) return [];
 
-    const results: FrameIoFeedback[] = [];
-
-    // Process in batches of 3 to avoid rate limiting
-    const batchSize = 3;
-    for (let i = 0; i < urls.length; i += batchSize) {
-        const batch = urls.slice(i, i + batchSize);
-        const batchResults = await Promise.all(batch.map(url => extractFrameIoComments(url)));
-        results.push(...batchResults);
-
-        // Small delay between batches
-        if (i + batchSize < urls.length) {
-            await new Promise(resolve => setTimeout(resolve, 1000));
-        }
-    }
+    // Process all URLs in parallel for speed (Browserless handles rate limiting)
+    const results = await Promise.all(
+        urls.map(url =>
+            extractFrameIoComments(url).catch(err => ({
+                url,
+                assetName: '',
+                comments: [],
+                error: err.message
+            } as FrameIoFeedback))
+        )
+    );
 
     return results;
 }
