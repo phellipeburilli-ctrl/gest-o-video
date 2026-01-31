@@ -14,12 +14,18 @@ export default async function FeedbacksPage() {
         task.assignees?.some(a => AUDIOVISUAL_TEAM_IDS.includes(a.id))
     );
 
-    console.log(`[Feedbacks] Total tasks: ${allTasks.length}, Audiovisual: ${audiovisualTasks.length}`);
+    console.log(`[Feedbacks] Total: ${allTasks.length}, Audiovisual: ${audiovisualTasks.length}`);
 
-    // Fetch feedback audit data (includes alteration history and links)
-    const feedbackData = await clickupService.fetchFeedbackAuditData(audiovisualTasks);
+    // Get task IDs for phase time fetching
+    const taskIds = audiovisualTasks.map(t => t.id);
 
-    // Also get tasks currently in "ALTERAÇÃO" status
+    // Fetch phase time for all tasks (includes alterationTimeMs)
+    const phaseTimeMap = await clickupService.fetchPhaseTimeForTasks(taskIds);
+
+    // Use optimized audit that reuses phaseTimeMap
+    const feedbackData = await clickupService.fetchFeedbackAuditDataOptimized(audiovisualTasks, phaseTimeMap);
+
+    // Get tasks currently in "ALTERAÇÃO" status
     const tasksInAlteration = audiovisualTasks.filter(task => {
         const statusUpper = task.status.status.toUpperCase();
         return statusUpper.includes('ALTERA');
@@ -28,8 +34,8 @@ export default async function FeedbacksPage() {
     // Fetch Frame.io links for tasks currently in alteration
     const currentAlterationData = await clickupService.fetchTasksWithFrameIoLinks(tasksInAlteration.slice(0, 20));
 
-    console.log(`[Feedbacks] Completed tasks analyzed: ${feedbackData.length}`);
-    console.log(`[Feedbacks] With alteration history: ${feedbackData.filter(t => t.hadAlteration).length}`);
+    const withAlteration = feedbackData.filter(t => t.hadAlteration).length;
+    console.log(`[Feedbacks] Completed: ${feedbackData.length}, With alteration: ${withAlteration}`);
     console.log(`[Feedbacks] Currently in alteration: ${tasksInAlteration.length}`);
 
     return (

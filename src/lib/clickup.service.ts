@@ -63,7 +63,6 @@ export class ClickUpService {
 
                 for (const status of statuses) {
                     this.statusMap.set(status.id, status.status);
-                    console.log(`[ClickUp] Status mapping: ${status.id} -> ${status.status}`);
                 }
             } catch (error) {
                 console.error(`[ClickUp] Error fetching status map for list ${listId}:`, error);
@@ -93,7 +92,6 @@ export class ClickUpService {
 
                 while (hasMore && page < MAX_PAGES) {
                     const url = `${CLICKUP_API_URL}/list/${listId}/task?page=${page}&include_closed=true&subtasks=true&date_created_gt=${START_DATE_2026}`;
-                    console.log(`[ClickUp] Fetching list ${listId}, page ${page}...`);
 
                     const response = await fetch(url, {
                         method: 'GET',
@@ -106,25 +104,14 @@ export class ClickUpService {
 
                     if (!response.ok) {
                         const body = await response.text();
-                        console.error(`[ClickUp] API Error for list ${listId}: ${response.status} ${response.statusText} - Body: ${body}`);
+                        console.error(`[ClickUp] API Error for list ${listId}: ${response.status} - ${body}`);
                         break;
                     }
 
                     const data = await response.json();
                     const tasks: ClickUpTask[] = data.tasks || [];
 
-                    console.log(`[ClickUp] List ${listId}, page ${page} fetched. Count: ${tasks.length}`);
-
-                    if (tasks.length > 0 && page === 0) {
-                        const t = tasks[0];
-                        console.log(`[ClickUp] Debug Task [${t.name}]:`, JSON.stringify({
-                            status: t.status,
-                            time_spent: t.time_spent,
-                            date_created: t.date_created,
-                            date_closed: t.date_closed,
-                            custom_fields: t.custom_fields.map(f => ({ name: f.name, value: f.value, type: f.type }))
-                        }, null, 2));
-                    }
+                    console.log(`[ClickUp] List ${listId}, page ${page}: ${tasks.length} tasks`);
 
                     if (tasks.length === 0) {
                         hasMore = false;
@@ -135,27 +122,22 @@ export class ClickUpService {
                 }
             }
 
-            console.log(`[ClickUp] Total raw tasks fetched from all lists: ${allTasks.length}`);
+            console.log(`[ClickUp] Total raw tasks: ${allTasks.length}`);
 
             const filteredTasks = allTasks
                 .map(task => {
                     const validAssignees = task.assignees.filter(
                         user => !EXCLUDED_USER_IDS.includes(user.id)
                     );
-                    return {
-                        ...task,
-                        assignees: validAssignees
-                    };
+                    return { ...task, assignees: validAssignees };
                 })
                 .filter(task => {
                     const hasTag = task.tags.some(tag => tag.name.toUpperCase() === 'AUDIOVISUAL');
                     const hasTeamMember = task.assignees.some(user => AUDIOVISUAL_TEAM_IDS.includes(user.id));
-                    const isValid = hasTag || hasTeamMember;
-                    return isValid;
+                    return hasTag || hasTeamMember;
                 });
 
-            console.log(`[ClickUp] Valid tasks after filter (Tag OR Team Member): ${filteredTasks.length}`);
-
+            console.log(`[ClickUp] Filtered tasks: ${filteredTasks.length}`);
             return filteredTasks;
 
         } catch (error) {
@@ -168,9 +150,7 @@ export class ClickUpService {
      * Fetches time in status history for a single task
      */
     async fetchTaskTimeInStatus(taskId: string): Promise<any | null> {
-        if (!this.apiKey) {
-            return null;
-        }
+        if (!this.apiKey) return null;
 
         try {
             const url = `${CLICKUP_API_URL}/task/${taskId}/time_in_status`;
@@ -183,58 +163,36 @@ export class ClickUpService {
                 cache: 'no-store',
             });
 
-            if (!response.ok) {
-                return null;
-            }
-
+            if (!response.ok) return null;
             return await response.json();
         } catch (error) {
-            console.error(`[ClickUp] Failed to fetch time in status for task ${taskId}:`, error);
             return null;
         }
     }
 
     /**
-     * Fetches editing time for multiple tasks in parallel batches
+     * Fetches comments for a single task
      */
-    async fetchEditingTimeForTasks(taskIds: string[]): Promise<Map<string, number>> {
-        const editingTimeMap = new Map<string, number>();
-        const batchSize = 10;
+    async fetchTaskComments(taskId: string): Promise<any[]> {
+        if (!this.apiKey) return [];
 
-        for (let i = 0; i < taskIds.length; i += batchSize) {
-            const batch = taskIds.slice(i, i + batchSize);
-
-            const promises = batch.map(async (taskId) => {
-                const rawData = await this.fetchTaskTimeInStatus(taskId);
-                if (rawData) {
-                    const statusHistory = rawData.status_history || [];
-                    let editingTime = 0;
-
-                    for (const statusItem of statusHistory) {
-                        const statusName = statusItem.status || '';
-                        const statusUpper = statusName.toUpperCase();
-
-                        if (statusUpper === 'VIDEO: EDITANDO') {
-                            const byMinute = statusItem.total_time?.by_minute || 0;
-                            const timeMs = byMinute * 60 * 1000;
-                            editingTime += timeMs;
-                        }
-                    }
-                    editingTimeMap.set(taskId, editingTime);
-                    if (editingTime > 0) {
-                        console.log(`[ClickUp] Task ${taskId}: editing time = ${(editingTime / 3600000).toFixed(2)}h`);
-                    }
-                }
+        try {
+            const url = `${CLICKUP_API_URL}/task/${taskId}/comment`;
+            const response = await fetch(url, {
+                method: 'GET',
+                headers: {
+                    'Authorization': this.apiKey,
+                    'Content-Type': 'application/json',
+                },
+                cache: 'no-store',
             });
 
-            await Promise.all(promises);
-
-            if (i + batchSize < taskIds.length) {
-                await new Promise(resolve => setTimeout(resolve, 100));
-            }
+            if (!response.ok) return [];
+            const data = await response.json();
+            return data.comments || [];
+        } catch (error) {
+            return [];
         }
-
-        return editingTimeMap;
     }
 
     /**
@@ -266,10 +224,6 @@ export class ClickUpService {
                         const byMinute = statusItem.total_time?.by_minute || 0;
                         const timeMs = byMinute * 60 * 1000;
 
-                        if (timeMs > 0) {
-                            console.log(`[ClickUp] Task ${taskId}: status "${statusName}" = ${(timeMs / 3600000).toFixed(2)}h`);
-                        }
-
                         if (statusUpper === 'VIDEO: EDITANDO') {
                             phaseTime.editingTimeMs += timeMs;
                         } else if (statusUpper === 'PARA REVISÃO' || statusUpper === 'REVISANDO') {
@@ -284,10 +238,6 @@ export class ClickUpService {
                     }
 
                     phaseTimeMap.set(taskId, phaseTime);
-
-                    if (phaseTime.editingTimeMs > 0 || phaseTime.revisionTimeMs > 0 || phaseTime.alterationTimeMs > 0) {
-                        console.log(`[ClickUp] Task ${taskId}: TOTAL editing=${(phaseTime.editingTimeMs / 3600000).toFixed(2)}h, revision=${(phaseTime.revisionTimeMs / 3600000).toFixed(2)}h, alteration=${(phaseTime.alterationTimeMs / 3600000).toFixed(2)}h`);
-                    }
                 }
             });
 
@@ -302,170 +252,41 @@ export class ClickUpService {
     }
 
     /**
-     * Fetches comments for a single task
-     */
-    async fetchTaskComments(taskId: string): Promise<any[]> {
-        if (!this.apiKey) {
-            return [];
-        }
-
-        try {
-            const url = `${CLICKUP_API_URL}/task/${taskId}/comment`;
-            const response = await fetch(url, {
-                method: 'GET',
-                headers: {
-                    'Authorization': this.apiKey,
-                    'Content-Type': 'application/json',
-                },
-                cache: 'no-store',
-            });
-
-            if (!response.ok) {
-                console.error(`[ClickUp] Comments error for task ${taskId}: ${response.status}`);
-                return [];
-            }
-
-            const data = await response.json();
-            return data.comments || [];
-        } catch (error) {
-            console.error(`[ClickUp] Failed to fetch comments for task ${taskId}:`, error);
-            return [];
-        }
-    }
-
-    /**
      * Extracts Frame.io links from a comment's structured data
-     * ClickUp stores links as bookmark or link_mention objects, not plain text
      */
     private extractFrameIoLinksFromComment(comment: any): string[] {
         const links: string[] = [];
         const frameIoPattern = /(?:frame\.io|f\.io)/i;
-
-        // comment.comment is an array of structured elements
         const commentElements = comment.comment || [];
 
         for (const element of commentElements) {
-            // Check bookmark type (embedded links with preview)
             if (element.type === 'bookmark' && element.bookmark?.url) {
                 const url = element.bookmark.url;
                 if (frameIoPattern.test(url)) {
                     links.push(url);
-                    console.log(`[ClickUp] Found Frame.io bookmark: ${url}`);
                 }
             }
-
-            // Check link_mention type (inline links)
             if (element.type === 'link_mention' && element.link_mention?.url) {
                 const url = element.link_mention.url;
                 if (frameIoPattern.test(url)) {
                     links.push(url);
-                    console.log(`[ClickUp] Found Frame.io link_mention: ${url}`);
                 }
             }
         }
 
-        // Also check comment_text for plain text links (fallback)
+        // Fallback: check comment_text
         const commentText = comment.comment_text || '';
-        // Match f.io/xxx patterns without https:// prefix
         const plainLinkRegex = /(?:https?:\/\/)?(?:[\w-]+\.)?(?:frame\.io|f\.io)\/[\w-]+/gi;
         const textMatches = commentText.match(plainLinkRegex) || [];
 
         for (const match of textMatches) {
-            // Normalize to full URL
             const fullUrl = match.startsWith('http') ? match : `https://${match}`;
             if (!links.includes(fullUrl)) {
                 links.push(fullUrl);
-                console.log(`[ClickUp] Found Frame.io in text: ${fullUrl}`);
             }
         }
 
         return links;
-    }
-
-    /**
-     * Fetches tasks with their comments and extracts Frame.io links
-     * Only searches in COMMENTS (not description)
-     */
-    async fetchTasksWithFrameIoLinks(tasks: ClickUpTask[]): Promise<{ task: ClickUpTask; frameIoLinks: string[]; comments: any[] }[]> {
-        const results: { task: ClickUpTask; frameIoLinks: string[]; comments: any[] }[] = [];
-
-        console.log(`[ClickUp] Searching Frame.io links in ${tasks.length} tasks...`);
-
-        // Process in batches
-        const batchSize = 5;
-        for (let i = 0; i < tasks.length; i += batchSize) {
-            const batch = tasks.slice(i, i + batchSize);
-
-            const promises = batch.map(async (task) => {
-                const comments = await this.fetchTaskComments(task.id);
-                const allLinks: string[] = [];
-
-                console.log(`[ClickUp] Task "${task.name}" (${task.id}): ${comments.length} comments`);
-
-                // Extract links from each comment's structured data
-                for (const comment of comments) {
-                    const commentLinks = this.extractFrameIoLinksFromComment(comment);
-                    allLinks.push(...commentLinks);
-                }
-
-                // Remove duplicates
-                const uniqueLinks = [...new Set(allLinks)];
-
-                if (uniqueLinks.length > 0) {
-                    console.log(`[ClickUp] Task "${task.name}": found ${uniqueLinks.length} unique Frame.io links`);
-                }
-
-                return {
-                    task,
-                    frameIoLinks: uniqueLinks,
-                    comments
-                };
-            });
-
-            const batchResults = await Promise.all(promises);
-            results.push(...batchResults);
-
-            // Rate limiting delay
-            if (i + batchSize < tasks.length) {
-                await new Promise(resolve => setTimeout(resolve, 200));
-            }
-        }
-
-        const totalLinksFound = results.reduce((acc, r) => acc + r.frameIoLinks.length, 0);
-        console.log(`[ClickUp] Total Frame.io links found: ${totalLinksFound}`);
-
-        return results;
-    }
-}
-
-    /**
-     * Fetches time in status for a task to check if it passed through "alteração"
-     */
-    async fetchTaskHadAlteration(taskId: string): Promise<boolean> {
-        if (!this.apiKey) return false;
-
-        try {
-            const url = `${CLICKUP_API_URL}/task/${taskId}/time_in_status`;
-            const response = await fetch(url, {
-                method: 'GET',
-                headers: {
-                    'Authorization': this.apiKey,
-                    'Content-Type': 'application/json',
-                },
-                cache: 'no-store',
-            });
-
-            if (!response.ok) return false;
-
-            const data = await response.json();
-            const statusHistory = data.status_history || [];
-
-            return statusHistory.some((s: any) =>
-                (s.status || '').toLowerCase().includes('altera')
-            );
-        } catch (error) {
-            return false;
-        }
     }
 
     /**
@@ -480,7 +301,6 @@ export class ClickUpService {
         const commentElements = comment.comment || [];
 
         for (const element of commentElements) {
-            // Check bookmark type
             if (element.type === 'bookmark' && element.bookmark?.url) {
                 const url = element.bookmark.url;
                 if (frameIoPattern.test(url)) {
@@ -489,8 +309,6 @@ export class ClickUpService {
                     googleDocsLinks.push(url);
                 }
             }
-
-            // Check link_mention type
             if (element.type === 'link_mention' && element.link_mention?.url) {
                 const url = element.link_mention.url;
                 if (frameIoPattern.test(url)) {
@@ -501,7 +319,7 @@ export class ClickUpService {
             }
         }
 
-        // Also check comment_text for plain text links
+        // Fallback: check comment_text
         const commentText = comment.comment_text || '';
         const plainLinkRegex = /(?:https?:\/\/)?(?:[\w-]+\.)?(?:frame\.io|f\.io|docs\.google\.com)\/[\w\-\/?=&#.]+/gi;
         const textMatches = commentText.match(plainLinkRegex) || [];
@@ -519,10 +337,50 @@ export class ClickUpService {
     }
 
     /**
-     * Fetches completed/approved tasks and checks which ones had alterations
-     * Returns detailed feedback data for the Feedbacks Audit page
+     * Fetches tasks with their comments and extracts Frame.io links
      */
-    async fetchFeedbackAuditData(tasks: ClickUpTask[]): Promise<{
+    async fetchTasksWithFrameIoLinks(tasks: ClickUpTask[]): Promise<{ task: ClickUpTask; frameIoLinks: string[]; comments: any[] }[]> {
+        const results: { task: ClickUpTask; frameIoLinks: string[]; comments: any[] }[] = [];
+        const batchSize = 10;
+
+        for (let i = 0; i < tasks.length; i += batchSize) {
+            const batch = tasks.slice(i, i + batchSize);
+
+            const promises = batch.map(async (task) => {
+                const comments = await this.fetchTaskComments(task.id);
+                const allLinks: string[] = [];
+
+                for (const comment of comments) {
+                    const commentLinks = this.extractFrameIoLinksFromComment(comment);
+                    allLinks.push(...commentLinks);
+                }
+
+                return {
+                    task,
+                    frameIoLinks: [...new Set(allLinks)],
+                    comments
+                };
+            });
+
+            const batchResults = await Promise.all(promises);
+            results.push(...batchResults);
+
+            if (i + batchSize < tasks.length) {
+                await new Promise(resolve => setTimeout(resolve, 100));
+            }
+        }
+
+        return results;
+    }
+
+    /**
+     * OPTIMIZED: Fetches feedback audit data using phaseTime (already fetched)
+     * Uses alterationTimeMs > 0 to determine if task had alteration
+     */
+    async fetchFeedbackAuditDataOptimized(
+        tasks: ClickUpTask[],
+        phaseTimeMap: Map<string, TaskPhaseTime>
+    ): Promise<{
         task: ClickUpTask;
         hadAlteration: boolean;
         frameIoLinks: string[];
@@ -537,34 +395,36 @@ export class ClickUpService {
             comments: any[];
         }[] = [];
 
-        // Filter only completed tasks (approved or concluded)
+        // Filter completed tasks
         const completedTasks = tasks.filter(task => {
             const status = (task.status.status || '').toLowerCase();
             return status.includes('aprovado') || status.includes('conclu');
         });
 
-        console.log(`[ClickUp] Checking ${completedTasks.length} completed tasks for alterations...`);
+        console.log(`[ClickUp] Audit: ${completedTasks.length} completed tasks`);
 
-        // Process in batches
-        const batchSize = 5;
-        for (let i = 0; i < Math.min(completedTasks.length, 100); i += batchSize) {
+        // Process in larger batches since we already have phaseTime
+        const batchSize = 15;
+        for (let i = 0; i < completedTasks.length; i += batchSize) {
             const batch = completedTasks.slice(i, i + batchSize);
 
             const promises = batch.map(async (task) => {
-                // Check if task had alteration
-                const hadAlteration = await this.fetchTaskHadAlteration(task.id);
+                // Check alteration from phaseTimeMap (already fetched!)
+                const phaseTime = phaseTimeMap.get(task.id);
+                const hadAlteration = phaseTime ? phaseTime.alterationTimeMs > 0 : false;
 
-                // Fetch comments
-                const comments = await this.fetchTaskComments(task.id);
+                // Only fetch comments if had alteration (saves API calls)
+                let comments: any[] = [];
+                let allFrameIoLinks: string[] = [];
+                let allGoogleDocsLinks: string[] = [];
 
-                // Extract all links
-                const allFrameIoLinks: string[] = [];
-                const allGoogleDocsLinks: string[] = [];
-
-                for (const comment of comments) {
-                    const { frameIoLinks, googleDocsLinks } = this.extractAllLinksFromComment(comment);
-                    allFrameIoLinks.push(...frameIoLinks);
-                    allGoogleDocsLinks.push(...googleDocsLinks);
+                if (hadAlteration) {
+                    comments = await this.fetchTaskComments(task.id);
+                    for (const comment of comments) {
+                        const { frameIoLinks, googleDocsLinks } = this.extractAllLinksFromComment(comment);
+                        allFrameIoLinks.push(...frameIoLinks);
+                        allGoogleDocsLinks.push(...googleDocsLinks);
+                    }
                 }
 
                 return {
@@ -579,16 +439,55 @@ export class ClickUpService {
             const batchResults = await Promise.all(promises);
             results.push(...batchResults);
 
-            // Rate limiting
             if (i + batchSize < completedTasks.length) {
-                await new Promise(resolve => setTimeout(resolve, 200));
+                await new Promise(resolve => setTimeout(resolve, 50));
             }
         }
 
         const withAlteration = results.filter(r => r.hadAlteration).length;
-        console.log(`[ClickUp] Tasks with alteration history: ${withAlteration}/${results.length}`);
+        console.log(`[ClickUp] Audit complete: ${withAlteration}/${results.length} with alteration`);
 
         return results;
+    }
+
+    /**
+     * Fetches editing time for multiple tasks in parallel batches
+     */
+    async fetchEditingTimeForTasks(taskIds: string[]): Promise<Map<string, number>> {
+        const editingTimeMap = new Map<string, number>();
+        const batchSize = 10;
+
+        for (let i = 0; i < taskIds.length; i += batchSize) {
+            const batch = taskIds.slice(i, i + batchSize);
+
+            const promises = batch.map(async (taskId) => {
+                const rawData = await this.fetchTaskTimeInStatus(taskId);
+                if (rawData) {
+                    const statusHistory = rawData.status_history || [];
+                    let editingTime = 0;
+
+                    for (const statusItem of statusHistory) {
+                        const statusName = statusItem.status || '';
+                        const statusUpper = statusName.toUpperCase();
+
+                        if (statusUpper === 'VIDEO: EDITANDO') {
+                            const byMinute = statusItem.total_time?.by_minute || 0;
+                            const timeMs = byMinute * 60 * 1000;
+                            editingTime += timeMs;
+                        }
+                    }
+                    editingTimeMap.set(taskId, editingTime);
+                }
+            });
+
+            await Promise.all(promises);
+
+            if (i + batchSize < taskIds.length) {
+                await new Promise(resolve => setTimeout(resolve, 100));
+            }
+        }
+
+        return editingTimeMap;
     }
 }
 
