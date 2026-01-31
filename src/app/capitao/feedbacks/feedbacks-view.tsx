@@ -18,7 +18,9 @@ import {
     Film,
     HelpCircle,
     TrendingDown,
-    Award
+    Award,
+    RefreshCw,
+    Loader2
 } from 'lucide-react';
 
 interface FrameIoCommentWithCategory {
@@ -89,6 +91,33 @@ const ALL_CATEGORIES: FeedbackCategory[] = [
 
 export function FeedbacksView({ tasks, feedbackData, currentAlterationTasks, lastUpdated }: FeedbacksViewProps) {
     const [expandedEditor, setExpandedEditor] = useState<string | null>(null);
+    const [isUpdating, setIsUpdating] = useState(false);
+    const [updateResult, setUpdateResult] = useState<{ success: boolean; message: string } | null>(null);
+
+    const handleUpdate = async () => {
+        setIsUpdating(true);
+        setUpdateResult(null);
+
+        try {
+            const response = await fetch('/api/feedbacks/update', { method: 'POST' });
+            const data = await response.json();
+
+            if (data.success) {
+                setUpdateResult({
+                    success: true,
+                    message: `${data.stats.commentsExtracted} feedbacks extraídos de ${data.stats.frameIoUrls} links`
+                });
+                // Reload page after 2 seconds to show updated data
+                setTimeout(() => window.location.reload(), 2000);
+            } else {
+                setUpdateResult({ success: false, message: data.error || 'Erro ao atualizar' });
+            }
+        } catch (error) {
+            setUpdateResult({ success: false, message: 'Erro de conexão' });
+        } finally {
+            setIsUpdating(false);
+        }
+    };
 
     // Calculate stats by editor
     const editorStatsMap: Record<string, EditorStats> = {};
@@ -175,10 +204,35 @@ export function FeedbacksView({ tasks, feedbackData, currentAlterationTasks, las
                         {totalCompleted} tasks • {totalWithAlteration} alterações ({overallRate.toFixed(0)}%) • {totalComments} feedbacks analisados
                     </p>
                 </div>
-                <div className="text-xs text-gray-600">
-                    {new Date(lastUpdated).toLocaleString('pt-BR')}
+                <div className="flex items-center gap-3">
+                    <button
+                        onClick={handleUpdate}
+                        disabled={isUpdating}
+                        className="flex items-center gap-2 px-3 py-1.5 bg-purple-600/20 text-purple-400 border border-purple-500/30 rounded-lg text-sm hover:bg-purple-600/30 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                        {isUpdating ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                            <RefreshCw className="w-4 h-4" />
+                        )}
+                        {isUpdating ? 'Atualizando...' : 'Atualizar'}
+                    </button>
+                    <div className="text-xs text-gray-600">
+                        {new Date(lastUpdated).toLocaleString('pt-BR')}
+                    </div>
                 </div>
             </div>
+
+            {/* Update Result Message */}
+            {updateResult && (
+                <div className={`p-3 rounded-lg text-sm ${
+                    updateResult.success
+                        ? 'bg-green-950/30 border border-green-900/50 text-green-400'
+                        : 'bg-red-950/30 border border-red-900/50 text-red-400'
+                }`}>
+                    {updateResult.message}
+                </div>
+            )}
 
             {/* Global Error Patterns */}
             {topGlobalErrors.length > 0 && (
