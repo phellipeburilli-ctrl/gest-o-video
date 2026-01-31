@@ -1,7 +1,8 @@
 import { getDiagnosticoData } from '@/lib/cached-data.service';
 import { DiagnosticoView } from './diagnostico-view';
 
-export const revalidate = 300;
+// Force dynamic rendering to always fetch fresh data
+export const dynamic = 'force-dynamic';
 
 export default async function DiagnosticoPage() {
     const data = await getDiagnosticoData();

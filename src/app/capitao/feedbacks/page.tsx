@@ -1,7 +1,8 @@
 import { getFeedbacksData } from '@/lib/cached-data.service';
 import { FeedbacksView } from './feedbacks-view';
 
-export const revalidate = 300;
+// Force dynamic rendering to always fetch fresh data
+export const dynamic = 'force-dynamic';
 
 export default async function FeedbacksPage() {
     const data = await getFeedbacksData();

@@ -1,7 +1,8 @@
 import { getEvolucaoData } from '@/lib/cached-data.service';
 import { EvolucaoView } from './evolucao-view';
 
-export const revalidate = 300;
+// Force dynamic rendering to always fetch fresh data
+export const dynamic = 'force-dynamic';
 
 export default async function EvolucaoPage() {
     const data = await getEvolucaoData();
