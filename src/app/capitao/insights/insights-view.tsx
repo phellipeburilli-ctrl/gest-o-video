@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { EditorInsight, InsightsData } from '@/lib/insights.service';
+import { EditorInsight, InsightsData, ActionItem } from '@/lib/insights.service';
 import { ALL_TEAMS } from '@/lib/constants';
 import {
     AlertTriangle,
@@ -28,6 +28,40 @@ interface InsightsViewProps {
     periodLabel: string;
     comparisonLabel: string;
     lastUpdated: number;
+}
+
+// Componente de Ação Concreta
+function ActionCard({ action }: { action: ActionItem }) {
+    const getPriorityColor = () => {
+        if (action.priority === 'high') return 'border-red-500/50 bg-red-500/10';
+        if (action.priority === 'medium') return 'border-yellow-500/50 bg-yellow-500/10';
+        return 'border-green-500/30 bg-green-500/10';
+    };
+
+    const getPriorityBadge = () => {
+        if (action.priority === 'high') return { text: 'URGENTE', color: 'bg-red-500 text-white' };
+        if (action.priority === 'medium') return { text: 'IMPORTANTE', color: 'bg-yellow-500 text-black' };
+        return { text: 'ROTINA', color: 'bg-green-500/50 text-white' };
+    };
+
+    const badge = getPriorityBadge();
+
+    return (
+        <div className={`border rounded-lg p-3 ${getPriorityColor()}`}>
+            <div className="flex items-start gap-3">
+                <span className="text-xl">{action.icon}</span>
+                <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                        <h5 className="text-white font-medium">{action.title}</h5>
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${badge.color}`}>
+                            {badge.text}
+                        </span>
+                    </div>
+                    <p className="text-gray-300 text-sm">{action.description}</p>
+                </div>
+            </div>
+        </div>
+    );
 }
 
 // Componente de Card do Editor
@@ -127,22 +161,27 @@ function EditorCard({ insight, expanded, onToggle }: {
             {/* Conteúdo Expandido */}
             {expanded && (
                 <div className="p-4 border-t border-white/10 space-y-4">
-                    {/* Recomendação */}
-                    <div className="bg-purple-500/10 border border-purple-500/30 rounded-lg p-4">
-                        <div className="flex items-start gap-3">
-                            <span className="text-2xl">{insight.recommendationIcon}</span>
-                            <div>
-                                <h4 className="text-purple-400 font-semibold flex items-center gap-2">
-                                    <Lightbulb className="w-4 h-4" />
-                                    Ação Recomendada
-                                </h4>
-                                <p className="text-white mt-1">{insight.recommendation}</p>
-                            </div>
+                    {/* Diagnóstico */}
+                    <div className="bg-white/5 rounded-lg p-4">
+                        <h4 className="text-gray-300 font-medium mb-2">📊 Diagnóstico</h4>
+                        <p className="text-white text-sm leading-relaxed">{insight.diagnosis}</p>
+                    </div>
+
+                    {/* AÇÕES CONCRETAS */}
+                    <div>
+                        <h4 className="text-purple-400 font-semibold flex items-center gap-2 mb-3">
+                            <Lightbulb className="w-4 h-4" />
+                            O que fazer agora
+                        </h4>
+                        <div className="space-y-2">
+                            {insight.actions.map((action, idx) => (
+                                <ActionCard key={idx} action={action} />
+                            ))}
                         </div>
                     </div>
 
                     {/* Métricas Detalhadas */}
-                    <div className="grid grid-cols-3 gap-4">
+                    <div className="grid grid-cols-3 gap-4 pt-4 border-t border-white/10">
                         <div className="bg-white/5 rounded-lg p-3 text-center">
                             <p className="text-gray-400 text-xs">Vídeos Entregues</p>
                             <p className="text-white text-xl font-bold">{insight.totalVideos}</p>
@@ -158,50 +197,6 @@ function EditorCard({ insight, expanded, onToggle }: {
                         <div className="bg-white/5 rounded-lg p-3 text-center">
                             <p className="text-gray-400 text-xs">Período Anterior</p>
                             <p className="text-gray-300 text-xl font-bold">{insight.previousAlterationRate}%</p>
-                        </div>
-                    </div>
-
-                    {/* Padrões de Erro */}
-                    {insight.errorPatterns.length > 0 && (
-                        <div>
-                            <h4 className="text-gray-400 text-sm mb-2">Distribuição de Erros</h4>
-                            <div className="space-y-2">
-                                {insight.errorPatterns.slice(0, 4).map((error, idx) => (
-                                    <div key={error.category} className="flex items-center gap-2">
-                                        <div className="flex-1 bg-white/5 rounded-full h-2 overflow-hidden">
-                                            <div
-                                                className={`h-full ${
-                                                    idx === 0 ? 'bg-red-400' :
-                                                    idx === 1 ? 'bg-yellow-400' :
-                                                    idx === 2 ? 'bg-blue-400' : 'bg-gray-400'
-                                                }`}
-                                                style={{ width: `${error.percentage}%` }}
-                                            />
-                                        </div>
-                                        <span className="text-gray-400 text-xs w-32 truncate">{error.category}</span>
-                                        <span className="text-white text-xs font-medium w-10 text-right">
-                                            {error.percentage}%
-                                        </span>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Score de Urgência */}
-                    <div className="flex items-center justify-between pt-2 border-t border-white/10">
-                        <span className="text-gray-400 text-sm">Score de Urgência</span>
-                        <div className="flex items-center gap-2">
-                            <div className="w-32 bg-white/10 rounded-full h-2 overflow-hidden">
-                                <div
-                                    className={`h-full ${
-                                        insight.urgencyScore >= 70 ? 'bg-red-500' :
-                                        insight.urgencyScore >= 40 ? 'bg-yellow-500' : 'bg-green-500'
-                                    }`}
-                                    style={{ width: `${insight.urgencyScore}%` }}
-                                />
-                            </div>
-                            <span className="text-white font-bold">{insight.urgencyScore}</span>
                         </div>
                     </div>
                 </div>

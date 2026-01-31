@@ -19,6 +19,14 @@ export interface ErrorPattern {
     percentage: number;
 }
 
+export interface ActionItem {
+    type: 'conversation' | 'training' | 'process' | 'recognition' | 'observation';
+    priority: 'high' | 'medium' | 'low';
+    title: string;
+    description: string;
+    icon: string;
+}
+
 export interface EditorInsight {
     // Identificação
     editorId: number;
@@ -49,9 +57,11 @@ export interface EditorInsight {
     urgencyScore: number;
     urgencyLevel: UrgencyLevel;
 
-    // Recomendação
-    recommendation: string;
-    recommendationIcon: string;
+    // Recomendações CONCRETAS
+    actions: ActionItem[];
+
+    // Diagnóstico em texto
+    diagnosis: string;
 }
 
 export interface InsightsData {
@@ -75,20 +85,112 @@ export interface InsightsData {
 }
 
 // ============================================
-// MAPEAMENTO DE RECOMENDAÇÕES
+// AÇÕES ESPECÍFICAS POR TIPO DE PROBLEMA
 // ============================================
 
-const ERROR_RECOMMENDATIONS: Record<string, { text: string; icon: string }> = {
-    'Áudio/Voz': { text: 'Conversar sobre mixagem e níveis de áudio', icon: '🔊' },
-    'Legenda/Texto': { text: 'Revisar processo de legendagem e timing', icon: '📝' },
-    'Corte/Transição': { text: 'Praticar transições e ritmo de edição', icon: '🎬' },
-    'Fonte/Tipografia': { text: 'Padronizar tipografia com guidelines', icon: '🔤' },
-    'Cor/Imagem': { text: 'Revisar workflow de colorização', icon: '🎨' },
-    'Timing/Sincronização': { text: 'Focar em sincronização áudio/vídeo', icon: '⏱️' },
-    'Logo/Marca': { text: 'Verificar posicionamento de marca', icon: '🏷️' },
-    'CTA/Preço': { text: 'Revisar templates de CTA/preço', icon: '💰' },
-    'Footage/Vídeo': { text: 'Melhorar seleção de footage', icon: '🎥' },
-    'Outros': { text: 'Agendar 1:1 para entender dificuldades', icon: '💬' },
+const ERROR_SPECIFIC_ACTIONS: Record<string, ActionItem[]> = {
+    'Áudio/Voz': [
+        {
+            type: 'training',
+            priority: 'high',
+            title: 'Treinamento de áudio',
+            description: 'Revisar tutorial de mixagem: níveis -6dB para voz, -12dB para música de fundo',
+            icon: '🎧'
+        },
+        {
+            type: 'process',
+            priority: 'medium',
+            title: 'Checklist de áudio',
+            description: 'Implementar verificação obrigatória de áudio antes de enviar para revisão',
+            icon: '✅'
+        }
+    ],
+    'Legenda/Texto': [
+        {
+            type: 'training',
+            priority: 'high',
+            title: 'Revisão de legendas',
+            description: 'Mostrar exemplos de legendas corretas vs erradas. Focar em: timing, ortografia, quebra de linha',
+            icon: '📝'
+        },
+        {
+            type: 'process',
+            priority: 'medium',
+            title: 'Revisão ortográfica',
+            description: 'Usar verificador ortográfico antes de exportar. Considerar Grammarly/LanguageTool',
+            icon: '🔍'
+        }
+    ],
+    'Corte/Transição': [
+        {
+            type: 'training',
+            priority: 'high',
+            title: 'Workshop de ritmo',
+            description: 'Estudar referências de corte do setor. Analisar 3 vídeos aprovados de primeira',
+            icon: '🎬'
+        },
+        {
+            type: 'observation',
+            priority: 'medium',
+            title: 'Shadowing',
+            description: 'Acompanhar editor sênior em 2 projetos para absorver técnicas de corte',
+            icon: '👀'
+        }
+    ],
+    'Fonte/Tipografia': [
+        {
+            type: 'process',
+            priority: 'high',
+            title: 'Guia de estilo',
+            description: 'Revisar manual de tipografia da marca. Criar atalhos no editor para fontes padrão',
+            icon: '🔤'
+        }
+    ],
+    'Cor/Imagem': [
+        {
+            type: 'training',
+            priority: 'high',
+            title: 'Correção de cor',
+            description: 'Treinar uso de LUTs padrão do setor. Calibrar monitor se necessário',
+            icon: '🎨'
+        }
+    ],
+    'Timing/Sincronização': [
+        {
+            type: 'training',
+            priority: 'high',
+            title: 'Sincronização A/V',
+            description: 'Praticar alinhamento de áudio com vídeo. Usar waveform como guia visual',
+            icon: '⏱️'
+        }
+    ],
+    'Logo/Marca': [
+        {
+            type: 'process',
+            priority: 'medium',
+            title: 'Templates de marca',
+            description: 'Usar templates pré-aprovados com logos já posicionados corretamente',
+            icon: '🏷️'
+        }
+    ],
+    'CTA/Preço': [
+        {
+            type: 'process',
+            priority: 'high',
+            title: 'Validação de CTA',
+            description: 'Sempre confirmar valores e CTAs com o briefing antes de exportar',
+            icon: '💰'
+        }
+    ],
+    'Footage/Vídeo': [
+        {
+            type: 'training',
+            priority: 'medium',
+            title: 'Seleção de footage',
+            description: 'Revisar biblioteca de assets aprovados. Evitar footage de baixa qualidade',
+            icon: '🎥'
+        }
+    ]
 };
 
 // ============================================
@@ -98,6 +200,8 @@ const ERROR_RECOMMENDATIONS: Record<string, { text: string; icon: string }> = {
 /**
  * Calcula o score de urgência (0-100)
  * Quanto MAIOR, mais urgente a ajuda
+ *
+ * REGRA PRINCIPAL: Taxa < 35% = nunca é crítico
  */
 export function calculateUrgencyScore(
     alterationRate: number,
@@ -106,65 +210,208 @@ export function calculateUrgencyScore(
 ): number {
     let score = 0;
 
-    // 1. Taxa de alteração atual (peso 40%)
-    if (alterationRate >= 35) score += 40;      // Crítico
-    else if (alterationRate >= 20) score += 25; // Atenção
-    else score += 10;                            // OK
+    // 1. Taxa de alteração atual (peso 50% - mais importante)
+    if (alterationRate >= 50) score += 50;      // Muito crítico
+    else if (alterationRate >= 35) score += 40; // Crítico
+    else if (alterationRate >= 25) score += 25; // Atenção
+    else if (alterationRate >= 15) score += 15; // Monitorar
+    else score += 5;                             // OK
 
-    // 2. Padrão de erro concentrado (peso 30%)
-    // Se >50% dos erros são do mesmo tipo = problema focado
-    if (topErrorPercentage >= 50) score += 30;
-    else if (topErrorPercentage >= 35) score += 20;
-    else score += 10;
-
-    // 3. Tendência de piora (peso 30%)
-    if (trendValue > 10) score += 30;      // Piorou muito
-    else if (trendValue > 5) score += 20;  // Piorou um pouco
-    else if (trendValue > 0) score += 10;  // Estável/leve piora
+    // 2. Tendência de piora (peso 30%)
+    if (trendValue > 15) score += 30;      // Piorou muito
+    else if (trendValue > 10) score += 25; // Piorou bastante
+    else if (trendValue > 5) score += 15;  // Piorou um pouco
+    else if (trendValue > 0) score += 5;   // Estável/leve piora
     else score += 0;                        // Melhorando!
+
+    // 3. Concentração de erro (peso 20%)
+    if (topErrorPercentage >= 60) score += 20;
+    else if (topErrorPercentage >= 40) score += 10;
+    else score += 0;
 
     return Math.min(100, Math.max(0, score));
 }
 
 /**
- * Determina o nível de urgência baseado no score
+ * Determina o nível de urgência baseado no score E na taxa de alteração
+ *
+ * REGRA: Se taxa < 35%, máximo é "attention", nunca "critical"
  */
-export function getUrgencyLevel(score: number): UrgencyLevel {
-    if (score >= 70) return 'critical';
-    if (score >= 40) return 'attention';
+export function getUrgencyLevel(score: number, alterationRate?: number): UrgencyLevel {
+    // Se taxa está abaixo de 35%, nunca é crítico
+    if (alterationRate !== undefined && alterationRate < 35) {
+        if (score >= 40 || alterationRate >= 20) return 'attention';
+        return 'ok';
+    }
+
+    // Regra padrão pelo score
+    if (score >= 65) return 'critical';
+    if (score >= 35) return 'attention';
     return 'ok';
 }
 
 /**
- * Gera recomendação baseada nos dados do editor
+ * Gera ações concretas baseadas nos dados do editor
  */
-export function generateRecommendation(
+export function generateActions(
+    editorName: string,
     trend: 'improving' | 'stable' | 'worsening',
     topError: ErrorPattern | null,
-    alterationRate: number
-): { text: string; icon: string } {
-    // Se está melhorando, parabenizar
-    if (trend === 'improving' && alterationRate < 20) {
-        return { text: 'Evoluindo bem! Manter acompanhamento', icon: '✨' };
+    alterationRate: number,
+    videosWithAlteration: number,
+    totalVideos: number
+): ActionItem[] {
+    const actions: ActionItem[] = [];
+
+    // CASO 1: Performance EXCELENTE (< 10% alteração)
+    if (alterationRate < 10 && totalVideos >= 3) {
+        actions.push({
+            type: 'recognition',
+            priority: 'low',
+            title: 'Reconhecer publicamente',
+            description: `Destacar ${editorName} na reunião semanal como referência de qualidade`,
+            icon: '🏆'
+        });
+        actions.push({
+            type: 'process',
+            priority: 'medium',
+            title: 'Mentoria',
+            description: `Considerar ${editorName} como mentor para editores com dificuldade`,
+            icon: '🎓'
+        });
+        return actions;
     }
 
-    // Se está excelente
-    if (alterationRate < 10) {
-        return { text: 'Performance excelente! Considerar como mentor', icon: '🏆' };
+    // CASO 2: Melhorando (tendência positiva)
+    if (trend === 'improving') {
+        actions.push({
+            type: 'recognition',
+            priority: 'medium',
+            title: 'Feedback positivo',
+            description: `Reconhecer evolução de ${editorName}: taxa caiu ${Math.abs(alterationRate)}% vs período anterior`,
+            icon: '📈'
+        });
     }
 
-    // Baseado no erro principal
-    if (topError && topError.percentage >= 30) {
-        const rec = ERROR_RECOMMENDATIONS[topError.category];
-        if (rec) return rec;
-    }
-
-    // Fallback baseado na taxa de alteração
+    // CASO 3: Taxa CRÍTICA (>= 35%)
     if (alterationRate >= 35) {
-        return { text: 'Agendar reunião urgente para entender bloqueios', icon: '🚨' };
+        actions.push({
+            type: 'conversation',
+            priority: 'high',
+            title: '1:1 urgente',
+            description: `Agendar conversa com ${editorName} HOJE. Perguntar: "O que está dificultando seu trabalho?"`,
+            icon: '🚨'
+        });
+        actions.push({
+            type: 'observation',
+            priority: 'high',
+            title: 'Acompanhamento diário',
+            description: `Revisar TODOS os vídeos de ${editorName} antes de ir para aprovação por 1 semana`,
+            icon: '👁️'
+        });
     }
 
-    return { text: 'Acompanhar de perto nas próximas semanas', icon: '👀' };
+    // CASO 4: Taxa ATENÇÃO (20-35%)
+    else if (alterationRate >= 20) {
+        actions.push({
+            type: 'conversation',
+            priority: 'medium',
+            title: 'Check-in semanal',
+            description: `Conversa rápida com ${editorName}: "Como posso te ajudar a reduzir alterações?"`,
+            icon: '💬'
+        });
+    }
+
+    // CASO 5: Ações específicas baseadas no tipo de erro
+    if (topError && topError.percentage >= 25) {
+        const specificActions = ERROR_SPECIFIC_ACTIONS[topError.category];
+        if (specificActions) {
+            actions.push(...specificActions.map(a => ({
+                ...a,
+                description: a.description.replace('{editor}', editorName)
+            })));
+        }
+    }
+
+    // CASO 6: Piorando (tendência negativa)
+    if (trend === 'worsening' && actions.length < 3) {
+        actions.push({
+            type: 'conversation',
+            priority: 'high',
+            title: 'Investigar piora',
+            description: `${editorName} piorou vs período anterior. Verificar: sobrecarga? problemas pessoais? falta de clareza no briefing?`,
+            icon: '📉'
+        });
+    }
+
+    // CASO 7: Poucos vídeos (pode não ser representativo)
+    if (totalVideos < 3 && actions.length === 0) {
+        actions.push({
+            type: 'observation',
+            priority: 'low',
+            title: 'Aguardar mais dados',
+            description: `${editorName} tem apenas ${totalVideos} vídeo(s). Continuar monitorando para análise mais precisa`,
+            icon: '⏳'
+        });
+    }
+
+    // Se não tem ações específicas, dar uma genérica útil
+    if (actions.length === 0) {
+        actions.push({
+            type: 'observation',
+            priority: 'low',
+            title: 'Manter acompanhamento',
+            description: `${editorName} está dentro da meta. Verificar novamente na próxima semana`,
+            icon: '✅'
+        });
+    }
+
+    return actions;
+}
+
+/**
+ * Gera diagnóstico em texto explicando a situação
+ */
+export function generateDiagnosis(
+    editorName: string,
+    alterationRate: number,
+    videosWithAlteration: number,
+    totalVideos: number,
+    trend: 'improving' | 'stable' | 'worsening',
+    trendValue: number,
+    topError: ErrorPattern | null
+): string {
+    const parts: string[] = [];
+
+    // Volume
+    if (totalVideos === 0) {
+        return `${editorName} não entregou vídeos no período analisado.`;
+    }
+
+    // Taxa de alteração
+    if (alterationRate >= 35) {
+        parts.push(`⚠️ Taxa de alteração CRÍTICA: ${videosWithAlteration} de ${totalVideos} vídeos precisaram de correção (${alterationRate}%)`);
+    } else if (alterationRate >= 20) {
+        parts.push(`Taxa de alteração ACIMA da meta: ${videosWithAlteration} de ${totalVideos} vídeos com alteração (${alterationRate}%)`);
+    } else if (alterationRate > 0) {
+        parts.push(`Taxa de alteração DENTRO da meta: ${videosWithAlteration} de ${totalVideos} vídeos com alteração (${alterationRate}%)`);
+    } else {
+        parts.push(`🎯 ZERO alterações em ${totalVideos} vídeos! Performance excelente.`);
+    }
+
+    // Tendência
+    if (trend === 'improving') {
+        parts.push(`📈 Melhorou ${Math.abs(trendValue)}% comparado ao período anterior.`);
+    } else if (trend === 'worsening') {
+        parts.push(`📉 Piorou ${trendValue}% comparado ao período anterior.`);
+    }
+
+    // Padrão de erro
+    if (topError && topError.percentage >= 30) {
+        parts.push(`🔍 Principal problema: ${topError.category} (${topError.percentage}% dos erros)`);
+    }
+
+    return parts.join(' ');
 }
 
 /**
@@ -232,10 +479,28 @@ export function calculateEditorInsight(
     // Score de urgência
     const topErrorPercentage = topError?.percentage || 0;
     const urgencyScore = calculateUrgencyScore(alterationRate, topErrorPercentage, trendValue);
-    const urgencyLevel = getUrgencyLevel(urgencyScore);
+    const urgencyLevel = getUrgencyLevel(urgencyScore, alterationRate);
 
-    // Recomendação
-    const rec = generateRecommendation(trend, topError, alterationRate);
+    // Gerar ações concretas
+    const actions = generateActions(
+        member.name,
+        trend,
+        topError,
+        alterationRate,
+        videosWithAlteration,
+        totalVideos
+    );
+
+    // Gerar diagnóstico
+    const diagnosis = generateDiagnosis(
+        member.name,
+        alterationRate,
+        videosWithAlteration,
+        totalVideos,
+        trend,
+        trendValue,
+        topError
+    );
 
     return {
         editorId: member.id,
@@ -255,8 +520,8 @@ export function calculateEditorInsight(
         topError,
         urgencyScore,
         urgencyLevel,
-        recommendation: rec.text,
-        recommendationIcon: rec.icon,
+        actions,
+        diagnosis,
     };
 }
 
