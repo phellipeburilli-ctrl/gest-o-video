@@ -2,26 +2,20 @@ import { ClickUpTask, TaskPhaseTime } from '@/types';
 import { AUDIOVISUAL_TEAM_IDS, EXCLUDED_USER_IDS } from './constants';
 
 const CLICKUP_API_URL = 'https://api.clickup.com/api/v2';
-const MAX_PAGES = 10; // Safety limit for pagination
+const MAX_PAGES = 10;
 
 // Data de início para filtrar tarefas (1 de Janeiro de 2026)
 const START_DATE_2026 = new Date('2026-01-01T00:00:00Z').getTime();
 
 // Extract numeric list ID from various ClickUp URL formats
 function extractListId(input: string): string {
-    // Format: 6-901305659240-1 → extract 901305659240
     const dashMatch = input.match(/^6-(\d+)-\d+$/);
     if (dashMatch) {
         return dashMatch[1];
     }
-
-    // If it's already a pure number, return as-is
     if (/^\d+$/.test(input)) {
         return input;
     }
-
-    // Format: 2y8rd-58473 (encoded format - may not work directly)
-    // Return as-is and let ClickUp API handle it
     return input;
 }
 
@@ -32,13 +26,12 @@ export class ClickUpService {
 
     constructor() {
         this.apiKey = process.env.CLICKUP_API_KEY || '';
-        // Support multiple list IDs separated by newline, comma, or space
         const rawListId = process.env.CLICKUP_LIST_ID || '';
         this.listIds = rawListId
             .split(/[\n,\s]+/)
             .map(id => id.trim())
             .filter(id => id.length > 0)
-            .map(id => extractListId(id)); // Extract numeric IDs
+            .map(id => extractListId(id));
         console.log(`[ClickUp] Initialized with ${this.listIds.length} list IDs: ${this.listIds.join(', ')}`);
     }
 
@@ -93,14 +86,12 @@ export class ClickUpService {
         let allTasks: ClickUpTask[] = [];
 
         try {
-            // Fetch from each list
             for (const listId of this.listIds) {
                 console.log(`[ClickUp] Fetching tasks from list ${listId}...`);
                 let page = 0;
                 let hasMore = true;
 
                 while (hasMore && page < MAX_PAGES) {
-                    // Filtrar tarefas criadas a partir de 1 de Janeiro de 2026
                     const url = `${CLICKUP_API_URL}/list/${listId}/task?page=${page}&include_closed=true&subtasks=true&date_created_gt=${START_DATE_2026}`;
                     console.log(`[ClickUp] Fetching list ${listId}, page ${page}...`);
 
@@ -110,13 +101,13 @@ export class ClickUpService {
                             'Authorization': this.apiKey,
                             'Content-Type': 'application/json',
                         },
-                        cache: 'no-store', // Always fetch fresh data
+                        cache: 'no-store',
                     });
 
                     if (!response.ok) {
                         const body = await response.text();
                         console.error(`[ClickUp] API Error for list ${listId}: ${response.status} ${response.statusText} - Body: ${body}`);
-                        break; // Skip to next list instead of throwing
+                        break;
                     }
 
                     const data = await response.json();
@@ -125,7 +116,6 @@ export class ClickUpService {
                     console.log(`[ClickUp] List ${listId}, page ${page} fetched. Count: ${tasks.length}`);
 
                     if (tasks.length > 0 && page === 0) {
-                        // DEBUG: Log key fields of the first task to find where "Hours" are stored
                         const t = tasks[0];
                         console.log(`[ClickUp] Debug Task [${t.name}]:`, JSON.stringify({
                             status: t.status,
@@ -147,12 +137,8 @@ export class ClickUpService {
 
             console.log(`[ClickUp] Total raw tasks fetched from all lists: ${allTasks.length}`);
 
-            // MODIFIED FILTER: Check Tag OR Assignee ID
-            // Also filter out excluded users from assignees list
             const filteredTasks = allTasks
                 .map(task => {
-                    // Remove excluded users from assignees list
-                    // This ensures metrics are calculated only for valid editors
                     const validAssignees = task.assignees.filter(
                         user => !EXCLUDED_USER_IDS.includes(user.id)
                     );
@@ -162,14 +148,9 @@ export class ClickUpService {
                     };
                 })
                 .filter(task => {
-                    // Condition 1: Has "AUDIOVISUAL" Tag
                     const hasTag = task.tags.some(tag => tag.name.toUpperCase() === 'AUDIOVISUAL');
-
-                    // Condition 2: Assigned to one of the Team Members (after exclusion)
                     const hasTeamMember = task.assignees.some(user => AUDIOVISUAL_TEAM_IDS.includes(user.id));
-
                     const isValid = hasTag || hasTeamMember;
-
                     return isValid;
                 });
 
@@ -185,7 +166,6 @@ export class ClickUpService {
 
     /**
      * Fetches time in status history for a single task
-     * Returns the raw API response (which contains current_status with status IDs as keys)
      */
     async fetchTaskTimeInStatus(taskId: string): Promise<any | null> {
         if (!this.apiKey) {
@@ -204,13 +184,10 @@ export class ClickUpService {
             });
 
             if (!response.ok) {
-                console.error(`[ClickUp] Time in status error for task ${taskId}: ${response.status}`);
                 return null;
             }
 
-            const data = await response.json();
-            // Return the full response so we can access current_status
-            return data;
+            return await response.json();
         } catch (error) {
             console.error(`[ClickUp] Failed to fetch time in status for task ${taskId}:`, error);
             return null;
@@ -218,21 +195,18 @@ export class ClickUpService {
     }
 
     /**
-     * Fetches time in status for multiple tasks and returns a map of taskId -> editing time in ms
-     * Editing time = time in "video: editando" status (até APROVADO ou CONCLUÍDO)
+     * Fetches editing time for multiple tasks in parallel batches
      */
     async fetchEditingTimeForTasks(taskIds: string[]): Promise<Map<string, number>> {
         const editingTimeMap = new Map<string, number>();
-
-        // Process in batches to avoid rate limiting
         const batchSize = 10;
+
         for (let i = 0; i < taskIds.length; i += batchSize) {
             const batch = taskIds.slice(i, i + batchSize);
 
             const promises = batch.map(async (taskId) => {
                 const rawData = await this.fetchTaskTimeInStatus(taskId);
                 if (rawData) {
-                    // The API returns status_history as an ARRAY
                     const statusHistory = rawData.status_history || [];
                     let editingTime = 0;
 
@@ -240,7 +214,6 @@ export class ClickUpService {
                         const statusName = statusItem.status || '';
                         const statusUpper = statusName.toUpperCase();
 
-                        // Conta tempo em VIDEO: EDITANDO
                         if (statusUpper === 'VIDEO: EDITANDO') {
                             const byMinute = statusItem.total_time?.by_minute || 0;
                             const timeMs = byMinute * 60 * 1000;
@@ -256,7 +229,6 @@ export class ClickUpService {
 
             await Promise.all(promises);
 
-            // Small delay between batches to avoid rate limiting
             if (i + batchSize < taskIds.length) {
                 await new Promise(resolve => setTimeout(resolve, 100));
             }
@@ -266,13 +238,12 @@ export class ClickUpService {
     }
 
     /**
-     * Fetches phase time (editing, revision, approval) for multiple tasks from ClickUp Time in Status API
+     * Fetches phase time (editing, revision, approval) for multiple tasks
      */
     async fetchPhaseTimeForTasks(taskIds: string[]): Promise<Map<string, TaskPhaseTime>> {
         const phaseTimeMap = new Map<string, TaskPhaseTime>();
-
-        // Process in batches to avoid rate limiting
         const batchSize = 10;
+
         for (let i = 0; i < taskIds.length; i += batchSize) {
             const batch = taskIds.slice(i, i + batchSize);
 
@@ -287,15 +258,11 @@ export class ClickUpService {
                         totalTimeMs: 0
                     };
 
-                    // The API returns status_history as an ARRAY, not an object
-                    // Each item has: status, color, type, total_time.by_minute, orderindex
                     const statusHistory = timeInStatus.status_history || [];
 
                     for (const statusItem of statusHistory) {
                         const statusName = statusItem.status || '';
                         const statusUpper = statusName.toUpperCase();
-
-                        // Calculate time from total_time.by_minute (in minutes)
                         const byMinute = statusItem.total_time?.by_minute || 0;
                         const timeMs = byMinute * 60 * 1000;
 
@@ -303,24 +270,16 @@ export class ClickUpService {
                             console.log(`[ClickUp] Task ${taskId}: status "${statusName}" = ${(timeMs / 3600000).toFixed(2)}h`);
                         }
 
-                        // Tempo em VIDEO: EDITANDO
                         if (statusUpper === 'VIDEO: EDITANDO') {
                             phaseTime.editingTimeMs += timeMs;
-                        }
-                        // Tempo em REVISÃO (PARA REVISÃO, REVISANDO)
-                        else if (statusUpper === 'PARA REVISÃO' || statusUpper === 'REVISANDO') {
+                        } else if (statusUpper === 'PARA REVISÃO' || statusUpper === 'REVISANDO') {
                             phaseTime.revisionTimeMs += timeMs;
-                        }
-                        // Tempo em ALTERAÇÃO (separado da revisão)
-                        else if (statusUpper === 'ALTERAÇÃO') {
+                        } else if (statusUpper === 'ALTERAÇÃO') {
                             phaseTime.alterationTimeMs += timeMs;
-                        }
-                        // Tempo em APROVADO
-                        else if (statusUpper === 'APROVADO') {
+                        } else if (statusUpper === 'APROVADO') {
                             phaseTime.approvalTimeMs += timeMs;
                         }
 
-                        // Total inclui todos os status
                         phaseTime.totalTimeMs += timeMs;
                     }
 
@@ -334,7 +293,6 @@ export class ClickUpService {
 
             await Promise.all(promises);
 
-            // Small delay between batches to avoid rate limiting
             if (i + batchSize < taskIds.length) {
                 await new Promise(resolve => setTimeout(resolve, 100));
             }
@@ -342,9 +300,9 @@ export class ClickUpService {
 
         return phaseTimeMap;
     }
+
     /**
      * Fetches comments for a single task
-     * Frame.io links are usually shared in task comments
      */
     async fetchTaskComments(taskId: string): Promise<any[]> {
         if (!this.apiKey) {
@@ -377,10 +335,15 @@ export class ClickUpService {
 
     /**
      * Fetches tasks with their comments and extracts Frame.io links
+     * Only searches in COMMENTS (not description)
      */
     async fetchTasksWithFrameIoLinks(tasks: ClickUpTask[]): Promise<{ task: ClickUpTask; frameIoLinks: string[]; comments: any[] }[]> {
         const results: { task: ClickUpTask; frameIoLinks: string[]; comments: any[] }[] = [];
-        const frameIoRegex = /https?:\/\/(?:f\.io|frame\.io|next\.frame\.io)\/[^\s<>"']+/gi;
+        
+        // Improved regex to catch all Frame.io URL variations
+        const frameIoRegex = /https?:\/\/(?:[\w-]+\.)?(?:frame\.io|f\.io)\/[^\s<>"'\])}]+/gi;
+
+        console.log(`[ClickUp] Searching Frame.io links in ${tasks.length} tasks...`);
 
         // Process in batches
         const batchSize = 5;
@@ -391,15 +354,23 @@ export class ClickUpService {
                 const comments = await this.fetchTaskComments(task.id);
                 const allLinks: string[] = [];
 
-                // Check task description
-                const description = task.description || task.text_content || '';
-                const descLinks = description.match(frameIoRegex) || [];
-                allLinks.push(...descLinks);
+                console.log(`[ClickUp] Task "${task.name}" (${task.id}): ${comments.length} comments`);
 
-                // Check all comments
+                // Search ONLY in comments
                 for (const comment of comments) {
                     const commentText = comment.comment_text || '';
+                    
+                    // Log first 200 chars of each comment for debugging
+                    if (commentText.length > 0) {
+                        console.log(`[ClickUp] Comment preview: ${commentText.substring(0, 200)}...`);
+                    }
+
                     const commentLinks = commentText.match(frameIoRegex) || [];
+                    
+                    if (commentLinks.length > 0) {
+                        console.log(`[ClickUp] Found ${commentLinks.length} Frame.io links in task "${task.name}": ${commentLinks.join(', ')}`);
+                    }
+
                     allLinks.push(...commentLinks);
                 }
 
@@ -421,6 +392,9 @@ export class ClickUpService {
                 await new Promise(resolve => setTimeout(resolve, 200));
             }
         }
+
+        const totalLinksFound = results.reduce((acc, r) => acc + r.frameIoLinks.length, 0);
+        console.log(`[ClickUp] Total Frame.io links found: ${totalLinksFound}`);
 
         return results;
     }

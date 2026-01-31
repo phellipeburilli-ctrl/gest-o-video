@@ -2,21 +2,19 @@ import { clickupService } from '@/lib/clickup.service';
 import { FeedbacksView } from './feedbacks-view';
 
 export const revalidate = 300;
-export const maxDuration = 60; // Allow up to 60 seconds for fetching comments
+export const maxDuration = 60;
 
 export default async function FeedbacksPage() {
-    // Fetch tasks that have been through revision/approval process
+    // Fetch all tasks from editors
     const tasks = await clickupService.fetchTasks();
 
-    // Filter tasks that had alteration or are completed (most likely to have Frame.io links)
+    // Filter only tasks with "ALTERAÇÃO" status
     const tasksWithAlteration = tasks.filter(task => {
         const statusUpper = task.status.status.toUpperCase();
-        return statusUpper.includes('ALTERA') ||
-            statusUpper.includes('REVIS') ||
-            statusUpper === 'APROVADO' ||
-            statusUpper === 'CONCLUÍDO' ||
-            statusUpper === 'FALTA SUBIR';
+        return statusUpper.includes('ALTERA');
     });
+
+    console.log(`[Feedbacks] Total tasks: ${tasks.length}, With Alteração: ${tasksWithAlteration.length}`);
 
     // Fetch comments for these tasks to find Frame.io links
     // Limit to first 50 tasks to avoid timeout
@@ -25,6 +23,8 @@ export default async function FeedbacksPage() {
 
     // Filter only tasks that have Frame.io links
     const tasksWithLinks = tasksWithFrameIo.filter(t => t.frameIoLinks.length > 0);
+
+    console.log(`[Feedbacks] Tasks with Frame.io links: ${tasksWithLinks.length}`);
 
     return (
         <FeedbacksView
