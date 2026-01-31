@@ -2,7 +2,8 @@
 
 import { useState } from 'react';
 import { ClickUpTask } from '@/types';
-import { getTeamByMemberName, getMemberByName, getMemberById, ALL_TEAMS } from '@/lib/constants';
+import { getMemberById } from '@/lib/constants';
+import { FeedbackCategory } from '@/lib/frameio.service';
 import {
     MessageSquare,
     ExternalLink,
@@ -11,15 +12,30 @@ import {
     CheckCircle,
     Clock,
     Video,
-    Link2,
     FileText,
     TrendingUp,
-    TrendingDown,
     Users,
     AlertTriangle,
     ChevronDown,
-    ChevronUp
+    ChevronUp,
+    Volume2,
+    Type,
+    Scissors,
+    Palette,
+    Timer,
+    Tag,
+    DollarSign,
+    Film,
+    HelpCircle
 } from 'lucide-react';
+
+interface FrameIoCommentWithCategory {
+    author: string;
+    text: string;
+    timestamp: string;
+    commentNumber: number;
+    category: FeedbackCategory;
+}
 
 interface FeedbackAuditData {
     task: ClickUpTask;
@@ -27,6 +43,7 @@ interface FeedbackAuditData {
     frameIoLinks: string[];
     googleDocsLinks: string[];
     comments: any[];
+    frameIoComments?: FrameIoCommentWithCategory[];
 }
 
 interface CurrentAlterationTask {
@@ -49,13 +66,39 @@ interface EditorStats {
     withAlteration: number;
     alterationRate: number;
     tasks: FeedbackAuditData[];
+    errorPatterns: Record<FeedbackCategory, number>;
+    totalErrors: number;
 }
 
+const CATEGORY_ICONS: Record<FeedbackCategory, any> = {
+    'Áudio/Voz': Volume2,
+    'Legenda/Texto': Type,
+    'Corte/Transição': Scissors,
+    'Fonte/Tipografia': Type,
+    'Cor/Imagem': Palette,
+    'Timing/Sincronização': Timer,
+    'Logo/Marca': Tag,
+    'CTA/Preço': DollarSign,
+    'Footage/Vídeo': Film,
+    'Outros': HelpCircle
+};
+
+const CATEGORY_COLORS: Record<FeedbackCategory, string> = {
+    'Áudio/Voz': 'text-purple-400 bg-purple-600/20',
+    'Legenda/Texto': 'text-blue-400 bg-blue-600/20',
+    'Corte/Transição': 'text-orange-400 bg-orange-600/20',
+    'Fonte/Tipografia': 'text-cyan-400 bg-cyan-600/20',
+    'Cor/Imagem': 'text-pink-400 bg-pink-600/20',
+    'Timing/Sincronização': 'text-yellow-400 bg-yellow-600/20',
+    'Logo/Marca': 'text-green-400 bg-green-600/20',
+    'CTA/Preço': 'text-emerald-400 bg-emerald-600/20',
+    'Footage/Vídeo': 'text-red-400 bg-red-600/20',
+    'Outros': 'text-gray-400 bg-gray-600/20'
+};
+
 export function FeedbacksView({ tasks, feedbackData, currentAlterationTasks, lastUpdated }: FeedbacksViewProps) {
-    const [searchTerm, setSearchTerm] = useState('');
-    const [editorFilter, setEditorFilter] = useState<string>('all');
     const [expandedEditor, setExpandedEditor] = useState<string | null>(null);
-    const [showOnlyWithAlteration, setShowOnlyWithAlteration] = useState(true);
+    const [searchTerm, setSearchTerm] = useState('');
 
     // Calculate stats by editor
     const editorStatsMap: Record<string, EditorStats> = {};
@@ -75,7 +118,20 @@ export function FeedbacksView({ tasks, feedbackData, currentAlterationTasks, las
                 totalCompleted: 0,
                 withAlteration: 0,
                 alterationRate: 0,
-                tasks: []
+                tasks: [],
+                errorPatterns: {
+                    'Áudio/Voz': 0,
+                    'Legenda/Texto': 0,
+                    'Corte/Transição': 0,
+                    'Fonte/Tipografia': 0,
+                    'Cor/Imagem': 0,
+                    'Timing/Sincronização': 0,
+                    'Logo/Marca': 0,
+                    'CTA/Preço': 0,
+                    'Footage/Vídeo': 0,
+                    'Outros': 0
+                },
+                totalErrors: 0
             };
         }
 
@@ -84,6 +140,14 @@ export function FeedbacksView({ tasks, feedbackData, currentAlterationTasks, las
             editorStatsMap[editorName].withAlteration++;
         }
         editorStatsMap[editorName].tasks.push(data);
+
+        // Count error patterns from Frame.io comments
+        if (data.frameIoComments) {
+            data.frameIoComments.forEach(comment => {
+                editorStatsMap[editorName].errorPatterns[comment.category]++;
+                editorStatsMap[editorName].totalErrors++;
+            });
+        }
     });
 
     // Calculate alteration rates
@@ -93,44 +157,45 @@ export function FeedbacksView({ tasks, feedbackData, currentAlterationTasks, las
             : 0;
     });
 
-    const editorStats = Object.values(editorStatsMap).sort((a, b) => b.alterationRate - a.alterationRate);
+    const editorStats = Object.values(editorStatsMap)
+        .filter(e => e.totalCompleted > 0)
+        .sort((a, b) => b.totalErrors - a.totalErrors || b.alterationRate - a.alterationRate);
 
     // Overall stats
     const totalCompleted = feedbackData.length;
     const totalWithAlteration = feedbackData.filter(d => d.hadAlteration).length;
     const overallRate = totalCompleted > 0 ? (totalWithAlteration / totalCompleted) * 100 : 0;
-    const currentInAlteration = currentAlterationTasks.length;
+    const totalFrameIoComments = feedbackData.reduce((acc, d) => acc + (d.frameIoComments?.length || 0), 0);
 
-    // Filter tasks for display
-    const tasksWithAlteration = feedbackData.filter(d => d.hadAlteration);
-    const filteredTasks = tasksWithAlteration.filter(data => {
-        if (searchTerm) {
-            const searchLower = searchTerm.toLowerCase();
-            if (!data.task.name.toLowerCase().includes(searchLower)) {
-                return false;
-            }
-        }
-        if (editorFilter !== 'all') {
-            const assignee = data.task.assignees?.[0];
-            const member = assignee ? getMemberById(assignee.id) : null;
-            const editorName = member?.name || assignee?.username || '';
-            if (editorName !== editorFilter) {
-                return false;
-            }
-        }
-        return true;
+    // Aggregate error patterns
+    const overallPatterns: Record<FeedbackCategory, number> = {
+        'Áudio/Voz': 0,
+        'Legenda/Texto': 0,
+        'Corte/Transição': 0,
+        'Fonte/Tipografia': 0,
+        'Cor/Imagem': 0,
+        'Timing/Sincronização': 0,
+        'Logo/Marca': 0,
+        'CTA/Preço': 0,
+        'Footage/Vídeo': 0,
+        'Outros': 0
+    };
+
+    feedbackData.forEach(d => {
+        d.frameIoComments?.forEach(c => {
+            overallPatterns[c.category]++;
+        });
     });
+
+    const topPatterns = Object.entries(overallPatterns)
+        .filter(([_, count]) => count > 0)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5);
 
     const getAlterationRateColor = (rate: number) => {
         if (rate <= 15) return 'text-green-400';
         if (rate <= 30) return 'text-yellow-400';
         return 'text-red-400';
-    };
-
-    const getAlterationRateBg = (rate: number) => {
-        if (rate <= 15) return 'bg-green-600/20';
-        if (rate <= 30) return 'bg-yellow-600/20';
-        return 'bg-red-600/20';
     };
 
     return (
@@ -140,7 +205,7 @@ export function FeedbacksView({ tasks, feedbackData, currentAlterationTasks, las
                 <div>
                     <h1 className="text-3xl font-bold text-white">Auditoria de Feedbacks</h1>
                     <p className="text-gray-400 mt-1">
-                        Análise de alterações e padrões de erro por editor
+                        Padrões de erro extraídos automaticamente do Frame.io
                     </p>
                 </div>
                 <div className="text-right">
@@ -173,20 +238,19 @@ export function FeedbacksView({ tasks, feedbackData, currentAlterationTasks, las
                         <div>
                             <p className="text-gray-400 text-sm">Com Alteração</p>
                             <p className="text-2xl font-bold text-white">{totalWithAlteration}</p>
+                            <p className="text-xs text-gray-500">{overallRate.toFixed(1)}% do total</p>
                         </div>
                     </div>
                 </div>
 
                 <div className="bg-[#12121a] border border-blue-900/30 rounded-xl p-6">
                     <div className="flex items-center gap-3">
-                        <div className={`w-12 h-12 rounded-lg ${getAlterationRateBg(overallRate)} flex items-center justify-center`}>
-                            <TrendingUp className={`w-6 h-6 ${getAlterationRateColor(overallRate)}`} />
+                        <div className="w-12 h-12 rounded-lg bg-blue-600/20 flex items-center justify-center">
+                            <MessageSquare className="w-6 h-6 text-blue-400" />
                         </div>
                         <div>
-                            <p className="text-gray-400 text-sm">Taxa de Alteração</p>
-                            <p className={`text-2xl font-bold ${getAlterationRateColor(overallRate)}`}>
-                                {overallRate.toFixed(1)}%
-                            </p>
+                            <p className="text-gray-400 text-sm">Feedbacks Analisados</p>
+                            <p className="text-2xl font-bold text-white">{totalFrameIoComments}</p>
                         </div>
                     </div>
                 </div>
@@ -198,147 +262,197 @@ export function FeedbacksView({ tasks, feedbackData, currentAlterationTasks, las
                         </div>
                         <div>
                             <p className="text-gray-400 text-sm">Aguardando Alteração</p>
-                            <p className="text-2xl font-bold text-white">{currentInAlteration}</p>
+                            <p className="text-2xl font-bold text-white">{currentAlterationTasks.length}</p>
                         </div>
                     </div>
                 </div>
             </div>
 
-            {/* Editor Rankings */}
+            {/* Top Error Patterns */}
+            {topPatterns.length > 0 && (
+                <div className="bg-[#12121a] border border-purple-900/30 rounded-xl p-6">
+                    <h2 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
+                        <TrendingUp className="w-5 h-5 text-purple-400" />
+                        Principais Tipos de Erro
+                    </h2>
+                    <div className="grid grid-cols-5 gap-4">
+                        {topPatterns.map(([category, count]) => {
+                            const Icon = CATEGORY_ICONS[category as FeedbackCategory];
+                            const colorClass = CATEGORY_COLORS[category as FeedbackCategory];
+                            const percentage = totalFrameIoComments > 0
+                                ? ((count / totalFrameIoComments) * 100).toFixed(0)
+                                : 0;
+
+                            return (
+                                <div key={category} className="bg-gray-900/50 rounded-lg p-4">
+                                    <div className="flex items-center gap-3 mb-2">
+                                        <div className={`w-10 h-10 rounded-lg ${colorClass} flex items-center justify-center`}>
+                                            <Icon className="w-5 h-5" />
+                                        </div>
+                                        <div>
+                                            <p className="text-white font-medium text-sm">{category}</p>
+                                            <p className="text-gray-500 text-xs">{percentage}% dos erros</p>
+                                        </div>
+                                    </div>
+                                    <p className="text-2xl font-bold text-white">{count}</p>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
+
+            {/* Editor Error Patterns */}
             <div className="bg-[#12121a] border border-purple-900/30 rounded-xl p-6">
                 <h2 className="text-xl font-semibold text-white mb-6 flex items-center gap-2">
                     <Users className="w-5 h-5 text-purple-400" />
-                    Taxa de Alteração por Editor
+                    Padrões de Erro por Editor
                 </h2>
 
-                <div className="space-y-3">
-                    {editorStats.map(editor => (
-                        <div key={editor.name} className="bg-gray-900/50 rounded-lg overflow-hidden">
-                            <button
-                                onClick={() => setExpandedEditor(expandedEditor === editor.name ? null : editor.name)}
-                                className="w-full p-4 flex items-center justify-between hover:bg-gray-800/50 transition-colors"
-                            >
-                                <div className="flex items-center gap-4">
-                                    <div
-                                        className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold"
-                                        style={{ backgroundColor: editor.color }}
-                                    >
-                                        {editor.name.charAt(0)}
-                                    </div>
-                                    <div className="text-left">
-                                        <p className="text-white font-medium">{editor.name}</p>
-                                        <p className="text-gray-500 text-sm">
-                                            {editor.totalCompleted} concluídas • {editor.withAlteration} com alteração
-                                        </p>
-                                    </div>
-                                </div>
-
-                                <div className="flex items-center gap-4">
-                                    <div className="text-right">
-                                        <p className={`text-xl font-bold ${getAlterationRateColor(editor.alterationRate)}`}>
-                                            {editor.alterationRate.toFixed(1)}%
-                                        </p>
-                                        <p className="text-gray-500 text-xs">taxa de alteração</p>
-                                    </div>
-
-                                    {/* Progress bar */}
-                                    <div className="w-32 h-2 bg-gray-700 rounded-full overflow-hidden">
+                {editorStats.length === 0 ? (
+                    <div className="text-center py-12">
+                        <MessageSquare className="w-12 h-12 text-gray-600 mx-auto mb-4" />
+                        <p className="text-gray-400">Nenhum feedback encontrado</p>
+                        <p className="text-gray-500 text-sm mt-2">
+                            Comentários do Frame.io serão extraídos automaticamente
+                        </p>
+                    </div>
+                ) : (
+                    <div className="space-y-3">
+                        {editorStats.map(editor => (
+                            <div key={editor.name} className="bg-gray-900/50 rounded-lg overflow-hidden">
+                                <button
+                                    onClick={() => setExpandedEditor(expandedEditor === editor.name ? null : editor.name)}
+                                    className="w-full p-4 flex items-center justify-between hover:bg-gray-800/50 transition-colors"
+                                >
+                                    <div className="flex items-center gap-4">
                                         <div
-                                            className={`h-full ${editor.alterationRate <= 15
-                                                    ? 'bg-green-500'
-                                                    : editor.alterationRate <= 30
-                                                        ? 'bg-yellow-500'
-                                                        : 'bg-red-500'
-                                                }`}
-                                            style={{ width: `${Math.min(editor.alterationRate, 100)}%` }}
-                                        />
-                                    </div>
-
-                                    {expandedEditor === editor.name
-                                        ? <ChevronUp className="w-5 h-5 text-gray-400" />
-                                        : <ChevronDown className="w-5 h-5 text-gray-400" />
-                                    }
-                                </div>
-                            </button>
-
-                            {/* Expanded details */}
-                            {expandedEditor === editor.name && (
-                                <div className="border-t border-gray-800 p-4 space-y-3">
-                                    <h4 className="text-sm text-gray-400 mb-3">
-                                        Tasks com alteração ({editor.withAlteration}):
-                                    </h4>
-                                    {editor.tasks.filter(t => t.hadAlteration).map(data => (
-                                        <div
-                                            key={data.task.id}
-                                            className="bg-gray-800/50 rounded-lg p-3"
+                                            className="w-12 h-12 rounded-full flex items-center justify-center text-white font-bold"
+                                            style={{ backgroundColor: editor.color }}
                                         >
-                                            <div className="flex items-start justify-between">
-                                                <div>
-                                                    <p className="text-white text-sm font-medium">
-                                                        {data.task.name}
-                                                    </p>
-                                                    <div className="flex items-center gap-2 mt-1">
-                                                        <span className="text-gray-500 text-xs">
-                                                            {new Date(parseInt(data.task.date_created)).toLocaleDateString('pt-BR')}
-                                                        </span>
-                                                        {data.frameIoLinks.length > 0 && (
-                                                            <span className="flex items-center gap-1 text-purple-400 text-xs">
-                                                                <Video className="w-3 h-3" />
-                                                                {data.frameIoLinks.length} Frame.io
-                                                            </span>
-                                                        )}
-                                                        {data.googleDocsLinks.length > 0 && (
-                                                            <span className="flex items-center gap-1 text-blue-400 text-xs">
-                                                                <FileText className="w-3 h-3" />
-                                                                {data.googleDocsLinks.length} Docs
-                                                            </span>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                                <div className="flex items-center gap-2">
-                                                    {data.googleDocsLinks.length > 0 && (
-                                                        <a
-                                                            href={data.googleDocsLinks[0]}
-                                                            target="_blank"
-                                                            rel="noopener noreferrer"
-                                                            className="px-2 py-1 bg-blue-600/20 text-blue-400 rounded text-xs hover:bg-blue-600/30 transition-colors"
+                                            {editor.name.charAt(0)}
+                                        </div>
+                                        <div className="text-left">
+                                            <p className="text-white font-medium">{editor.name}</p>
+                                            <p className="text-gray-500 text-sm">
+                                                {editor.totalCompleted} concluídas • {editor.withAlteration} alterações • {editor.totalErrors} feedbacks
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex items-center gap-6">
+                                        {/* Top 3 error categories for this editor */}
+                                        <div className="flex items-center gap-2">
+                                            {Object.entries(editor.errorPatterns)
+                                                .filter(([_, count]) => count > 0)
+                                                .sort((a, b) => b[1] - a[1])
+                                                .slice(0, 3)
+                                                .map(([category, count]) => {
+                                                    const Icon = CATEGORY_ICONS[category as FeedbackCategory];
+                                                    const colorClass = CATEGORY_COLORS[category as FeedbackCategory];
+                                                    return (
+                                                        <div
+                                                            key={category}
+                                                            className={`flex items-center gap-1 px-2 py-1 rounded ${colorClass}`}
+                                                            title={`${category}: ${count}`}
                                                         >
-                                                            Ver Feedback
-                                                        </a>
-                                                    )}
-                                                    {data.frameIoLinks.length > 0 && (
-                                                        <a
-                                                            href={data.frameIoLinks[0]}
-                                                            target="_blank"
-                                                            rel="noopener noreferrer"
-                                                            className="px-2 py-1 bg-purple-600/20 text-purple-400 rounded text-xs hover:bg-purple-600/30 transition-colors"
-                                                        >
-                                                            Frame.io
-                                                        </a>
-                                                    )}
-                                                    <a
-                                                        href={`https://app.clickup.com/t/${data.task.id}`}
-                                                        target="_blank"
-                                                        rel="noopener noreferrer"
-                                                        className="px-2 py-1 bg-gray-600/20 text-gray-400 rounded text-xs hover:bg-gray-600/30 transition-colors"
-                                                    >
-                                                        ClickUp
-                                                    </a>
-                                                </div>
+                                                            <Icon className="w-4 h-4" />
+                                                            <span className="text-xs font-medium">{count}</span>
+                                                        </div>
+                                                    );
+                                                })}
+                                        </div>
+
+                                        <div className="text-right">
+                                            <p className={`text-lg font-bold ${getAlterationRateColor(editor.alterationRate)}`}>
+                                                {editor.alterationRate.toFixed(1)}%
+                                            </p>
+                                            <p className="text-gray-500 text-xs">taxa de alteração</p>
+                                        </div>
+
+                                        {expandedEditor === editor.name
+                                            ? <ChevronUp className="w-5 h-5 text-gray-400" />
+                                            : <ChevronDown className="w-5 h-5 text-gray-400" />
+                                        }
+                                    </div>
+                                </button>
+
+                                {/* Expanded details */}
+                                {expandedEditor === editor.name && (
+                                    <div className="border-t border-gray-800 p-4">
+                                        {/* Error breakdown */}
+                                        <div className="mb-4">
+                                            <h4 className="text-sm text-gray-400 mb-3">Tipos de erro:</h4>
+                                            <div className="flex flex-wrap gap-2">
+                                                {Object.entries(editor.errorPatterns)
+                                                    .filter(([_, count]) => count > 0)
+                                                    .sort((a, b) => b[1] - a[1])
+                                                    .map(([category, count]) => {
+                                                        const Icon = CATEGORY_ICONS[category as FeedbackCategory];
+                                                        const colorClass = CATEGORY_COLORS[category as FeedbackCategory];
+                                                        const percentage = editor.totalErrors > 0
+                                                            ? ((count / editor.totalErrors) * 100).toFixed(0)
+                                                            : 0;
+                                                        return (
+                                                            <div
+                                                                key={category}
+                                                                className={`flex items-center gap-2 px-3 py-2 rounded-lg ${colorClass}`}
+                                                            >
+                                                                <Icon className="w-4 h-4" />
+                                                                <span className="text-sm font-medium">{category}</span>
+                                                                <span className="text-xs opacity-75">({count} - {percentage}%)</span>
+                                                            </div>
+                                                        );
+                                                    })}
                                             </div>
                                         </div>
-                                    ))}
 
-                                    {editor.withAlteration === 0 && (
-                                        <p className="text-gray-500 text-sm text-center py-4">
-                                            Nenhuma task com alteração encontrada
-                                        </p>
-                                    )}
-                                </div>
-                            )}
-                        </div>
-                    ))}
-                </div>
+                                        {/* Recent feedback comments */}
+                                        <div>
+                                            <h4 className="text-sm text-gray-400 mb-3">Feedbacks recentes:</h4>
+                                            <div className="space-y-2 max-h-60 overflow-y-auto">
+                                                {editor.tasks
+                                                    .filter(t => t.frameIoComments && t.frameIoComments.length > 0)
+                                                    .flatMap(t => t.frameIoComments!.map(c => ({ ...c, taskName: t.task.name })))
+                                                    .slice(0, 10)
+                                                    .map((comment, idx) => {
+                                                        const Icon = CATEGORY_ICONS[comment.category];
+                                                        const colorClass = CATEGORY_COLORS[comment.category];
+                                                        return (
+                                                            <div key={idx} className="bg-gray-800/50 rounded-lg p-3">
+                                                                <div className="flex items-start gap-3">
+                                                                    <div className={`w-8 h-8 rounded flex items-center justify-center flex-shrink-0 ${colorClass}`}>
+                                                                        <Icon className="w-4 h-4" />
+                                                                    </div>
+                                                                    <div className="flex-1 min-w-0">
+                                                                        <div className="flex items-center gap-2 mb-1">
+                                                                            <span className="text-xs text-gray-500">{comment.timestamp}</span>
+                                                                            <span className={`text-xs px-1.5 py-0.5 rounded ${colorClass}`}>
+                                                                                {comment.category}
+                                                                            </span>
+                                                                        </div>
+                                                                        <p className="text-sm text-white">{comment.text}</p>
+                                                                        <p className="text-xs text-gray-500 mt-1 truncate">
+                                                                            {comment.taskName}
+                                                                        </p>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                {editor.tasks.filter(t => t.frameIoComments && t.frameIoComments.length > 0).length === 0 && (
+                                                    <p className="text-gray-500 text-sm text-center py-4">
+                                                        Nenhum feedback detalhado disponível
+                                                    </p>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                )}
             </div>
 
             {/* Current Alterations */}
@@ -346,10 +460,10 @@ export function FeedbacksView({ tasks, feedbackData, currentAlterationTasks, las
                 <div className="bg-[#12121a] border border-red-900/30 rounded-xl p-6">
                     <h2 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
                         <AlertCircle className="w-5 h-5 text-red-400" />
-                        Aguardando Alteração Agora ({currentAlterationTasks.length})
+                        Aguardando Alteração ({currentAlterationTasks.length})
                     </h2>
 
-                    <div className="grid gap-4">
+                    <div className="grid gap-3">
                         {currentAlterationTasks.map(({ task, frameIoLinks }) => {
                             const assignee = task.assignees?.[0];
                             const member = assignee ? getMemberById(assignee.id) : null;
@@ -382,8 +496,8 @@ export function FeedbacksView({ tasks, feedbackData, currentAlterationTasks, las
                                                 rel="noopener noreferrer"
                                                 className="flex items-center gap-2 px-3 py-2 bg-purple-600/20 text-purple-400 rounded-lg text-sm hover:bg-purple-600/30 transition-colors"
                                             >
-                                                <ExternalLink className="w-4 h-4" />
-                                                Ver no Frame.io
+                                                <Video className="w-4 h-4" />
+                                                Frame.io
                                             </a>
                                         )}
                                         <a
@@ -402,122 +516,6 @@ export function FeedbacksView({ tasks, feedbackData, currentAlterationTasks, las
                     </div>
                 </div>
             )}
-
-            {/* Search and Filters */}
-            <div className="flex gap-4">
-                <div className="flex-1 relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
-                    <input
-                        type="text"
-                        placeholder="Buscar por nome da tarefa..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        className="w-full bg-[#12121a] border border-purple-900/30 rounded-lg pl-10 pr-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-purple-500"
-                    />
-                </div>
-
-                <select
-                    value={editorFilter}
-                    onChange={(e) => setEditorFilter(e.target.value)}
-                    className="bg-[#12121a] border border-purple-900/30 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-purple-500"
-                >
-                    <option value="all">Todos os Editores</option>
-                    {editorStats.map(editor => (
-                        <option key={editor.name} value={editor.name}>{editor.name}</option>
-                    ))}
-                </select>
-            </div>
-
-            {/* All Tasks with Alteration */}
-            <div className="bg-[#12121a] border border-purple-900/30 rounded-xl p-6">
-                <h2 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
-                    <MessageSquare className="w-5 h-5 text-purple-400" />
-                    Histórico de Alterações ({filteredTasks.length})
-                </h2>
-
-                {filteredTasks.length === 0 ? (
-                    <div className="text-center py-12">
-                        <MessageSquare className="w-12 h-12 text-gray-600 mx-auto mb-4" />
-                        <p className="text-gray-400">Nenhuma tarefa com alteração encontrada</p>
-                    </div>
-                ) : (
-                    <div className="space-y-3">
-                        {filteredTasks.map(data => {
-                            const assignee = data.task.assignees?.[0];
-                            const member = assignee ? getMemberById(assignee.id) : null;
-                            const editorName = member?.name || assignee?.username || 'Não atribuído';
-                            const editorColor = member?.color || '#6b7280';
-
-                            return (
-                                <div
-                                    key={data.task.id}
-                                    className="bg-gray-900/50 rounded-lg p-4"
-                                >
-                                    <div className="flex items-start justify-between">
-                                        <div className="flex items-start gap-4">
-                                            <div
-                                                className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold flex-shrink-0"
-                                                style={{ backgroundColor: editorColor }}
-                                            >
-                                                {editorName.charAt(0)}
-                                            </div>
-                                            <div>
-                                                <p className="text-white font-medium">{data.task.name}</p>
-                                                <div className="flex items-center gap-3 mt-1">
-                                                    <span className="text-gray-400 text-sm">{editorName}</span>
-                                                    <span className="text-gray-600">•</span>
-                                                    <span className="text-gray-500 text-sm flex items-center gap-1">
-                                                        <Clock className="w-3 h-3" />
-                                                        {new Date(parseInt(data.task.date_created)).toLocaleDateString('pt-BR')}
-                                                    </span>
-                                                    <span className="text-gray-600">•</span>
-                                                    <span className="px-2 py-0.5 rounded-full text-xs bg-green-600/20 text-green-400">
-                                                        {data.task.status.status}
-                                                    </span>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        <div className="flex items-center gap-2">
-                                            {data.googleDocsLinks.length > 0 && (
-                                                <a
-                                                    href={data.googleDocsLinks[0]}
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                    className="flex items-center gap-2 px-3 py-2 bg-blue-600/20 text-blue-400 rounded-lg text-sm hover:bg-blue-600/30 transition-colors"
-                                                >
-                                                    <FileText className="w-4 h-4" />
-                                                    Feedback
-                                                </a>
-                                            )}
-                                            {data.frameIoLinks.length > 0 && (
-                                                <a
-                                                    href={data.frameIoLinks[0]}
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                    className="flex items-center gap-2 px-3 py-2 bg-purple-600/20 text-purple-400 rounded-lg text-sm hover:bg-purple-600/30 transition-colors"
-                                                >
-                                                    <Video className="w-4 h-4" />
-                                                    Frame.io
-                                                </a>
-                                            )}
-                                            <a
-                                                href={`https://app.clickup.com/t/${data.task.id}`}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                className="flex items-center gap-2 px-3 py-2 bg-gray-600/20 text-gray-400 rounded-lg text-sm hover:bg-gray-600/30 transition-colors"
-                                            >
-                                                <ExternalLink className="w-4 h-4" />
-                                                ClickUp
-                                            </a>
-                                        </div>
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-                )}
-            </div>
         </div>
     );
 }
