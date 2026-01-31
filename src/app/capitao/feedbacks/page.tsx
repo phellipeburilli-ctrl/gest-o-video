@@ -34,46 +34,56 @@ export default async function FeedbacksPage() {
     // Use optimized audit that reuses phaseTimeMap
     const feedbackData = await clickupService.fetchFeedbackAuditDataOptimized(audiovisualTasks, phaseTimeMap);
 
-    // Get tasks with alterations that have Frame.io links
+    // Get ALL Frame.io links from tasks with alterations
     const tasksWithAlteration = feedbackData.filter(d => d.hadAlteration && d.frameIoLinks.length > 0);
 
-    // Collect Frame.io URLs to extract comments (limit to 5 to avoid timeout)
-    const frameIoUrls = tasksWithAlteration
-        .flatMap(d => d.frameIoLinks)
-        .slice(0, 5);
+    // Collect unique Frame.io URLs (limit to 10 for performance)
+    const allFrameIoUrls = [...new Set(tasksWithAlteration.flatMap(d => d.frameIoLinks))].slice(0, 10);
 
-    console.log(`[Feedbacks] Extracting comments from ${frameIoUrls.length} Frame.io links...`);
+    console.log(`[Feedbacks] Extracting comments from ${allFrameIoUrls.length} Frame.io links...`);
 
     // Extract Frame.io comments using Browserless
     let frameIoFeedbacks: Awaited<ReturnType<typeof extractMultipleFrameIoComments>> = [];
 
     try {
-        if (frameIoUrls.length > 0 && process.env.BROWSERLESS_API_KEY) {
-            frameIoFeedbacks = await extractMultipleFrameIoComments(frameIoUrls);
+        if (allFrameIoUrls.length > 0 && process.env.BROWSERLESS_API_KEY) {
+            frameIoFeedbacks = await extractMultipleFrameIoComments(allFrameIoUrls);
         }
     } catch (error) {
         console.error('[Feedbacks] Error extracting Frame.io comments:', error);
     }
 
-    // Map Frame.io feedback to tasks
-    const feedbackDataWithComments = feedbackData.map(data => {
-        const matchingFeedbacks = frameIoFeedbacks.filter(f =>
-            data.frameIoLinks.some(link => {
-                // Match by URL or short code
-                const shortCode = link.split('/').pop() || '';
-                return f.url.includes(shortCode) || link.includes(f.url.split('/').pop() || '');
-            })
-        );
-
-        const allComments = matchingFeedbacks.flatMap(f => f.comments);
-        const categorizedComments: FrameIoCommentWithCategory[] = allComments.map(c => ({
+    // Create a map of URL to comments for quick lookup
+    const urlToCommentsMap = new Map<string, FrameIoCommentWithCategory[]>();
+    frameIoFeedbacks.forEach(f => {
+        const categorizedComments: FrameIoCommentWithCategory[] = f.comments.map(c => ({
             ...c,
             category: categorizeComment(c.text)
         }));
 
+        // Map by full URL and short code
+        urlToCommentsMap.set(f.url, categorizedComments);
+        const shortCode = f.url.split('/').pop() || '';
+        if (shortCode) {
+            urlToCommentsMap.set(shortCode, categorizedComments);
+        }
+    });
+
+    // Map Frame.io feedback to tasks - match by URL or short code
+    const feedbackDataWithComments = feedbackData.map(data => {
+        const allComments: FrameIoCommentWithCategory[] = [];
+
+        data.frameIoLinks.forEach(link => {
+            const shortCode = link.split('/').pop() || '';
+            const comments = urlToCommentsMap.get(link) || urlToCommentsMap.get(shortCode) || urlToCommentsMap.get(`https://${link}`);
+            if (comments) {
+                allComments.push(...comments);
+            }
+        });
+
         return {
             ...data,
-            frameIoComments: categorizedComments
+            frameIoComments: allComments
         };
     });
 
@@ -82,9 +92,6 @@ export default async function FeedbacksPage() {
         const statusUpper = task.status.status.toUpperCase();
         return statusUpper.includes('ALTERA');
     });
-
-    // Fetch Frame.io links for tasks currently in alteration
-    const currentAlterationData = await clickupService.fetchTasksWithFrameIoLinks(tasksInAlteration.slice(0, 20));
 
     const withAlteration = feedbackData.filter(t => t.hadAlteration).length;
     const totalComments = frameIoFeedbacks.reduce((acc, f) => acc + f.comments.length, 0);
@@ -96,7 +103,7 @@ export default async function FeedbacksPage() {
         <FeedbacksView
             tasks={audiovisualTasks}
             feedbackData={feedbackDataWithComments}
-            currentAlterationTasks={currentAlterationData}
+            currentAlterationTasks={tasksInAlteration}
             lastUpdated={Date.now()}
         />
     );
