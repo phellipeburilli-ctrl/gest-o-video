@@ -376,7 +376,7 @@ export function InsightsView({
             {/* Seções de Editores */}
             <div className="space-y-8">
                 <InsightSection
-                    title="Atenção Imediata"
+                    title="Crítico - Acima de 35%"
                     icon={AlertCircle}
                     color="text-red-400"
                     insights={filteredCritical}
@@ -385,7 +385,7 @@ export function InsightsView({
                 />
 
                 <InsightSection
-                    title="Monitorar"
+                    title="Atenção - Entre 20% e 35%"
                     icon={AlertTriangle}
                     color="text-yellow-400"
                     insights={filteredAttention}
@@ -394,7 +394,7 @@ export function InsightsView({
                 />
 
                 <InsightSection
-                    title="Performance OK"
+                    title="OK - Abaixo de 20%"
                     icon={CheckCircle}
                     color="text-green-400"
                     insights={filteredOk}
@@ -418,23 +418,23 @@ export function InsightsView({
 
             {/* Legenda */}
             <div className="bg-[#12121a] border border-white/10 rounded-xl p-4">
-                <h4 className="text-gray-400 text-sm font-semibold mb-3">Como interpretar</h4>
+                <h4 className="text-gray-400 text-sm font-semibold mb-3">Classificação por Taxa de Alteração</h4>
                 <div className="grid grid-cols-3 gap-4 text-sm">
                     <div className="flex items-center gap-2">
                         <div className="w-3 h-3 rounded-full bg-red-500" />
-                        <span className="text-gray-300">Atenção Imediata (score &gt;70)</span>
+                        <span className="text-gray-300">Crítico: &ge; 35% alteração</span>
                     </div>
                     <div className="flex items-center gap-2">
                         <div className="w-3 h-3 rounded-full bg-yellow-500" />
-                        <span className="text-gray-300">Monitorar (score 40-70)</span>
+                        <span className="text-gray-300">Atenção: 20% - 35% alteração</span>
                     </div>
                     <div className="flex items-center gap-2">
                         <div className="w-3 h-3 rounded-full bg-green-500" />
-                        <span className="text-gray-300">Performance OK (score &lt;40)</span>
+                        <span className="text-gray-300">OK: &lt; 20% alteração</span>
                     </div>
                 </div>
                 <p className="text-gray-500 text-xs mt-3">
-                    Score baseado em: taxa de alteração (40%), concentração de erro (30%), tendência (30%)
+                    Cada editor aparece em apenas uma categoria baseado na sua taxa de alteração atual
                 </p>
             </div>
         </div>

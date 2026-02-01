@@ -233,20 +233,24 @@ export function calculateUrgencyScore(
 }
 
 /**
- * Determina o nível de urgência baseado no score E na taxa de alteração
+ * Determina o nível de urgência baseado APENAS na taxa de alteração
  *
- * REGRA: Se taxa < 35%, máximo é "attention", nunca "critical"
+ * REGRAS SIMPLES (cada pessoa aparece em apenas um grupo):
+ * - Crítico: >= 35% alteração
+ * - Atenção: 20-35% alteração
+ * - OK: < 20% alteração
  */
 export function getUrgencyLevel(score: number, alterationRate?: number): UrgencyLevel {
-    // Se taxa está abaixo de 35%, nunca é crítico
-    if (alterationRate !== undefined && alterationRate < 35) {
-        if (score >= 40 || alterationRate >= 20) return 'attention';
+    if (alterationRate === undefined) {
+        // Fallback para score se não tiver taxa
+        if (score >= 65) return 'critical';
+        if (score >= 35) return 'attention';
         return 'ok';
     }
 
-    // Regra padrão pelo score
-    if (score >= 65) return 'critical';
-    if (score >= 35) return 'attention';
+    // Regra baseada APENAS na taxa de alteração
+    if (alterationRate >= 35) return 'critical';
+    if (alterationRate >= 20) return 'attention';
     return 'ok';
 }
 
