@@ -36,10 +36,12 @@ export function EvolucaoSetorView({ allVideos, lastUpdated }: EvolucaoSetorViewP
         const weeks: WeeklyData[] = [];
         const now = new Date();
 
-        // Start from 8 weeks ago
+        // Start from 8 weeks ago (week starts on Monday)
         for (let i = 7; i >= 0; i--) {
             const weekStart = new Date(now);
-            weekStart.setDate(now.getDate() - now.getDay() - (i * 7));
+            const dayOfWeek = now.getDay();
+            const diffToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+            weekStart.setDate(now.getDate() - diffToMonday - (i * 7));
             weekStart.setHours(0, 0, 0, 0);
 
             const weekEnd = new Date(weekStart);

@@ -99,9 +99,11 @@ export function RelatoriosView({ kpis, allVideos, lastUpdated }: RelatoriosViewP
     const now = new Date();
 
     // ========== DATE RANGES ==========
-    // Week
+    // Week (starts on Monday)
     const startOfWeek = new Date(now);
-    startOfWeek.setDate(now.getDate() - now.getDay());
+    const dayOfWeek = now.getDay();
+    const diffToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // Sunday = go back 6 days, else go back (day - 1)
+    startOfWeek.setDate(now.getDate() - diffToMonday);
     startOfWeek.setHours(0, 0, 0, 0);
 
     const startOfLastWeek = new Date(startOfWeek);

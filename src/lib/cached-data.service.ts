@@ -102,10 +102,12 @@ export async function getCachedDashboardData(): Promise<CachedData> {
 export async function getDiagnosticoData() {
     const data = await getCachedDashboardData();
 
-    // Calculate weekly data
+    // Calculate weekly data (week starts on Monday)
     const now = new Date();
     const startOfWeek = new Date(now);
-    startOfWeek.setDate(now.getDate() - now.getDay());
+    const dayOfWeek = now.getDay();
+    const diffToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // Sunday = go back 6 days
+    startOfWeek.setDate(now.getDate() - diffToMonday);
     startOfWeek.setHours(0, 0, 0, 0);
 
     const startOfLastWeek = new Date(startOfWeek);

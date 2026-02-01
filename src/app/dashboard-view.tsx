@@ -115,9 +115,11 @@ export default function DashboardView({ initialData, lastUpdated }: DashboardVie
                 return v.dateClosed >= startOfQuarter.getTime();
             });
         } else if (timeRange === "week") {
-            // Início da semana atual (domingo)
+            // Início da semana atual (segunda-feira)
             const startOfWeek = new Date(now);
-            startOfWeek.setDate(now.getDate() - now.getDay()); // Volta para domingo
+            const dayOfWeek = now.getDay();
+            const diffToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // Sunday = go back 6 days
+            startOfWeek.setDate(now.getDate() - diffToMonday);
             startOfWeek.setHours(0, 0, 0, 0);
             videos = videos.filter(v => {
                 if (!v.dateClosed) return false;
