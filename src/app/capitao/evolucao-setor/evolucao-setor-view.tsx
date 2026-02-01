@@ -1,8 +1,8 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { NormalizedTask } from '@/types';
-import { ALL_TEAMS, getTeamByMemberName } from '@/lib/constants';
+import { getTeamByMemberName } from '@/lib/constants';
 import {
     TrendingUp,
     TrendingDown,
@@ -13,7 +13,8 @@ import {
     ArrowUp,
     ArrowDown,
     Minus,
-    Calendar
+    Users,
+    AlertTriangle
 } from 'lucide-react';
 
 interface EvolucaoSetorViewProps {
@@ -27,16 +28,37 @@ interface WeeklyData {
     totalVideos: number;
     completedVideos: number;
     alterationRate: number;
-    avgEditingTime: number; // em horas
+    avgEditingTime: number;
+}
+
+interface EditorData {
+    id: string;
+    name: string;
+    initials: string;
+    teamColor: string;
+    totalVideos: number;
+    videosWithAlteration: number;
+    alterationRate: number;
+    weeklyData: WeeklyData[];
+}
+
+function getInitials(name: string): string {
+    return name
+        .split(' ')
+        .map(n => n[0])
+        .join('')
+        .substring(0, 2)
+        .toUpperCase();
 }
 
 export function EvolucaoSetorView({ allVideos, lastUpdated }: EvolucaoSetorViewProps) {
-    // Calculate weekly data for the last 8 weeks
+    const [selectedEditorId, setSelectedEditorId] = useState<string | null>(null);
+
+    // Calculate weekly data for the last 8 weeks (SETOR GERAL)
     const weeklyData = useMemo(() => {
         const weeks: WeeklyData[] = [];
         const now = new Date();
 
-        // Start from 8 weeks ago (week starts on Monday)
         for (let i = 7; i >= 0; i--) {
             const weekStart = new Date(now);
             const dayOfWeek = now.getDay();
@@ -47,7 +69,6 @@ export function EvolucaoSetorView({ allVideos, lastUpdated }: EvolucaoSetorViewP
             const weekEnd = new Date(weekStart);
             weekEnd.setDate(weekEnd.getDate() + 7);
 
-            // Filter videos for this week
             const weekVideos = allVideos.filter(v => {
                 const date = v.dateClosed || v.dateCreated;
                 return date >= weekStart.getTime() && date < weekEnd.getTime();
@@ -63,7 +84,6 @@ export function EvolucaoSetorView({ allVideos, lastUpdated }: EvolucaoSetorViewP
                 ? (videosWithAlteration.length / videosWithPhase.length) * 100
                 : 0;
 
-            // Calculate average editing time
             const editingTimes = completedVideos
                 .filter(v => v.phaseTime?.editingTimeMs)
                 .map(v => v.phaseTime!.editingTimeMs!);
@@ -84,397 +104,381 @@ export function EvolucaoSetorView({ allVideos, lastUpdated }: EvolucaoSetorViewP
         return weeks;
     }, [allVideos]);
 
-    // Current week vs last week comparison
-    const currentWeek = weeklyData[weeklyData.length - 1];
-    const lastWeek = weeklyData[weeklyData.length - 2];
-
-    const volumeVariation = lastWeek && lastWeek.completedVideos > 0
-        ? ((currentWeek.completedVideos - lastWeek.completedVideos) / lastWeek.completedVideos * 100)
-        : 0;
-
-    const alterationVariation = lastWeek && lastWeek.alterationRate > 0
-        ? currentWeek.alterationRate - lastWeek.alterationRate
-        : 0;
-
-    const editingTimeVariation = lastWeek && lastWeek.avgEditingTime > 0
-        ? ((currentWeek.avgEditingTime - lastWeek.avgEditingTime) / lastWeek.avgEditingTime * 100)
-        : 0;
-
-    // Max values for bar chart scaling
-    const maxVideos = Math.max(...weeklyData.map(w => w.completedVideos), 1);
-    const maxAlteration = Math.max(...weeklyData.map(w => w.alterationRate), 35);
-    const maxEditingTime = Math.max(...weeklyData.map(w => w.avgEditingTime), 1);
-
-    // Calculate monthly aggregates
-    const monthlyData = useMemo(() => {
+    // Calculate editor data
+    const editorsData: EditorData[] = useMemo(() => {
+        const editorMap = new Map<string, EditorData>();
         const now = new Date();
-        const months: { name: string; videos: number; alterationRate: number }[] = [];
 
-        for (let i = 2; i >= 0; i--) {
-            const monthStart = new Date(now.getFullYear(), now.getMonth() - i, 1);
-            const monthEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
-            const monthName = monthStart.toLocaleString('pt-BR', { month: 'short' }).replace('.', '');
+        allVideos.forEach(video => {
+            if (!video.editorName) return;
 
-            const monthVideos = allVideos.filter(v => {
-                const date = v.dateClosed || v.dateCreated;
-                return date >= monthStart.getTime() && date <= monthEnd.getTime() && v.status === 'COMPLETED';
-            });
+            if (!editorMap.has(video.editorName)) {
+                const team = getTeamByMemberName(video.editorName);
+                editorMap.set(video.editorName, {
+                    id: video.editorName,
+                    name: video.editorName,
+                    initials: getInitials(video.editorName),
+                    teamColor: team?.color || '#6B7280',
+                    totalVideos: 0,
+                    videosWithAlteration: 0,
+                    alterationRate: 0,
+                    weeklyData: []
+                });
+            }
+        });
 
-            const videosWithPhase = monthVideos.filter(v => v.phaseTime);
+        editorMap.forEach((editor, editorName) => {
+            const editorVideos = allVideos.filter(v => v.editorName === editorName);
+            const weeks: WeeklyData[] = [];
+
+            for (let i = 7; i >= 0; i--) {
+                const weekStart = new Date(now);
+                const dayOfWeek = now.getDay();
+                const diffToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+                weekStart.setDate(now.getDate() - diffToMonday - (i * 7));
+                weekStart.setHours(0, 0, 0, 0);
+
+                const weekEnd = new Date(weekStart);
+                weekEnd.setDate(weekEnd.getDate() + 7);
+
+                const weekVideos = editorVideos.filter(v => {
+                    const date = v.dateClosed || v.dateCreated;
+                    return date >= weekStart.getTime() && date < weekEnd.getTime();
+                });
+
+                const completedVideos = weekVideos.filter(v => v.status === 'COMPLETED');
+                const videosWithPhase = completedVideos.filter(v => v.phaseTime);
+                const videosWithAlteration = videosWithPhase.filter(v =>
+                    v.phaseTime?.alterationTimeMs && v.phaseTime.alterationTimeMs > 0
+                );
+
+                const alterationRate = videosWithPhase.length > 0
+                    ? (videosWithAlteration.length / videosWithPhase.length) * 100
+                    : 0;
+
+                const editingTimes = completedVideos
+                    .filter(v => v.phaseTime?.editingTimeMs)
+                    .map(v => v.phaseTime!.editingTimeMs!);
+                const avgEditingTime = editingTimes.length > 0
+                    ? editingTimes.reduce((a, b) => a + b, 0) / editingTimes.length / (1000 * 60 * 60)
+                    : 0;
+
+                weeks.push({
+                    weekStart,
+                    weekLabel: `${weekStart.getDate()}/${weekStart.getMonth() + 1}`,
+                    totalVideos: weekVideos.length,
+                    completedVideos: completedVideos.length,
+                    alterationRate: parseFloat(alterationRate.toFixed(1)),
+                    avgEditingTime: parseFloat(avgEditingTime.toFixed(1))
+                });
+            }
+
+            const completedVideos = editorVideos.filter(v => v.status === 'COMPLETED');
+            const videosWithPhase = completedVideos.filter(v => v.phaseTime);
             const videosWithAlteration = videosWithPhase.filter(v =>
                 v.phaseTime?.alterationTimeMs && v.phaseTime.alterationTimeMs > 0
             );
-            const alterationRate = videosWithPhase.length > 0
+            const totalAlterationRate = videosWithPhase.length > 0
                 ? (videosWithAlteration.length / videosWithPhase.length) * 100
                 : 0;
 
-            months.push({
-                name: monthName.charAt(0).toUpperCase() + monthName.slice(1),
-                videos: monthVideos.length,
-                alterationRate: parseFloat(alterationRate.toFixed(1))
-            });
-        }
+            editor.totalVideos = completedVideos.length;
+            editor.videosWithAlteration = videosWithAlteration.length;
+            editor.alterationRate = parseFloat(totalAlterationRate.toFixed(1));
+            editor.weeklyData = weeks;
+        });
 
-        return months;
+        return Array.from(editorMap.values())
+            .filter(e => e.totalVideos > 0)
+            .sort((a, b) => b.alterationRate - a.alterationRate);
     }, [allVideos]);
 
-    // Helper to get trend icon
+    const selectedEditor = selectedEditorId
+        ? editorsData.find(e => e.id === selectedEditorId)
+        : null;
+
+    const displayData = selectedEditor?.weeklyData || weeklyData;
+
+    // Stats
+    const currentWeek = displayData[displayData.length - 1];
+    const lastWeek = displayData[displayData.length - 2];
+
+    const totalVideos8Weeks = displayData.reduce((acc, w) => acc + w.completedVideos, 0);
+    const totalAlterations = editorsData.reduce((acc, e) => acc + e.videosWithAlteration, 0);
+    const overallRate = totalVideos8Weeks > 0
+        ? (totalAlterations / totalVideos8Weeks * 100).toFixed(0)
+        : 0;
+
+    // Max values for scaling
+    const maxVideos = Math.max(...displayData.map(w => w.completedVideos), 1);
+    const maxAlteration = Math.max(...displayData.map(w => w.alterationRate), 35);
+
     const getTrendIcon = (value: number, inverted = false) => {
         const isPositive = inverted ? value < 0 : value > 0;
-        if (Math.abs(value) < 1) return <Minus className="w-4 h-4 text-gray-400" />;
-        if (isPositive) return <ArrowUp className="w-4 h-4 text-green-400" />;
-        return <ArrowDown className="w-4 h-4 text-red-400" />;
-    };
-
-    const getTrendColor = (value: number, inverted = false) => {
-        const isPositive = inverted ? value < 0 : value > 0;
-        if (Math.abs(value) < 1) return 'text-gray-400';
-        return isPositive ? 'text-green-400' : 'text-red-400';
+        if (Math.abs(value) < 1) return <Minus className="w-3 h-3 text-gray-400" />;
+        if (isPositive) return <ArrowUp className="w-3 h-3 text-green-400" />;
+        return <ArrowDown className="w-3 h-3 text-red-400" />;
     };
 
     return (
-        <div className="p-8 space-y-8">
-            {/* Header */}
-            <div className="flex justify-between items-start">
+        <div className="p-6">
+            {/* Header compacto */}
+            <div className="flex justify-between items-start mb-6">
                 <div>
-                    <h1 className="text-3xl font-bold text-white flex items-center gap-3">
-                        <BarChart3 className="w-8 h-8 text-purple-400" />
+                    <h1 className="text-2xl font-bold text-white flex items-center gap-2">
+                        <BarChart3 className="w-6 h-6 text-purple-400" />
                         Evolução do Setor
                     </h1>
-                    <p className="text-gray-400 mt-1">
-                        Tendências e comparativos ao longo do tempo
+                    <p className="text-gray-500 text-sm">
+                        {totalVideos8Weeks} tasks • {totalAlterations} alterações ({overallRate}%)
                     </p>
                 </div>
-                <div className="text-right">
-                    <div className="text-sm text-gray-500">Dados atualizados em</div>
-                    <div className="text-lg text-purple-400">
-                        {new Date(lastUpdated).toLocaleString('pt-BR')}
-                    </div>
+                <div className="text-right text-sm text-gray-500">
+                    {new Date(lastUpdated).toLocaleString('pt-BR')}
                 </div>
             </div>
 
-            {/* Summary Cards */}
-            <div className="grid grid-cols-4 gap-6">
-                {/* Volume */}
-                <div className="bg-[#12121a] border border-purple-900/30 rounded-xl p-6">
-                    <div className="flex items-center justify-between mb-2">
-                        <Video className="w-5 h-5 text-purple-400" />
-                        <div className={`flex items-center gap-1 ${getTrendColor(volumeVariation)}`}>
-                            {getTrendIcon(volumeVariation)}
-                            <span className="text-sm font-medium">
-                                {volumeVariation > 0 ? '+' : ''}{volumeVariation.toFixed(0)}%
-                            </span>
+            <div className="flex gap-6">
+                {/* Lista de editores - estilo Padrões de Erro */}
+                <div className="w-[420px] flex-shrink-0">
+                    <p className="text-gray-400 text-sm mb-3">Selecione um Editor</p>
+
+                    {/* Botão Setor Completo */}
+                    <div
+                        onClick={() => setSelectedEditorId(null)}
+                        className={`
+                            flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-all mb-2
+                            ${!selectedEditorId
+                                ? 'bg-purple-600/30 border border-purple-500/50'
+                                : 'bg-[#12121a] border border-transparent hover:border-purple-500/30'
+                            }
+                        `}
+                    >
+                        <div className="w-10 h-10 rounded-full bg-purple-600/30 flex items-center justify-center flex-shrink-0">
+                            <Users className="w-5 h-5 text-purple-400" />
                         </div>
-                    </div>
-                    <p className="text-gray-400 text-sm">Esta Semana</p>
-                    <p className="text-3xl font-bold text-white">{currentWeek?.completedVideos || 0}</p>
-                    <p className="text-gray-500 text-xs mt-1">
-                        vs {lastWeek?.completedVideos || 0} semana passada
-                    </p>
-                </div>
-
-                {/* Alteration Rate */}
-                <div className="bg-[#12121a] border border-purple-900/30 rounded-xl p-6">
-                    <div className="flex items-center justify-between mb-2">
-                        <Target className="w-5 h-5 text-amber-400" />
-                        <div className={`flex items-center gap-1 ${getTrendColor(alterationVariation, true)}`}>
-                            {getTrendIcon(alterationVariation, true)}
-                            <span className="text-sm font-medium">
-                                {alterationVariation > 0 ? '+' : ''}{alterationVariation.toFixed(1)}%
-                            </span>
+                        <div className="flex-1 min-w-0">
+                            <span className="text-white font-medium">Setor Completo</span>
+                            <p className="text-gray-500 text-xs">{editorsData.length} editores</p>
                         </div>
+                        <span className="text-purple-400 font-bold">{overallRate}%</span>
                     </div>
-                    <p className="text-gray-400 text-sm">Taxa Alteração</p>
-                    <p className={`text-3xl font-bold ${
-                        currentWeek?.alterationRate < 20 ? 'text-green-400' :
-                        currentWeek?.alterationRate < 35 ? 'text-amber-400' : 'text-red-400'
-                    }`}>
-                        {currentWeek?.alterationRate || 0}%
-                    </p>
-                    <p className="text-gray-500 text-xs mt-1">
-                        vs {lastWeek?.alterationRate || 0}% semana passada
-                    </p>
-                </div>
 
-                {/* Avg Editing Time */}
-                <div className="bg-[#12121a] border border-purple-900/30 rounded-xl p-6">
-                    <div className="flex items-center justify-between mb-2">
-                        <Clock className="w-5 h-5 text-blue-400" />
-                        <div className={`flex items-center gap-1 ${getTrendColor(editingTimeVariation, true)}`}>
-                            {getTrendIcon(editingTimeVariation, true)}
-                            <span className="text-sm font-medium">
-                                {editingTimeVariation > 0 ? '+' : ''}{editingTimeVariation.toFixed(0)}%
-                            </span>
-                        </div>
-                    </div>
-                    <p className="text-gray-400 text-sm">Tempo Médio Edição</p>
-                    <p className="text-3xl font-bold text-white">
-                        {currentWeek?.avgEditingTime.toFixed(1) || 0}h
-                    </p>
-                    <p className="text-gray-500 text-xs mt-1">
-                        vs {lastWeek?.avgEditingTime.toFixed(1) || 0}h semana passada
-                    </p>
-                </div>
-
-                {/* 8 Week Trend */}
-                <div className="bg-[#12121a] border border-purple-900/30 rounded-xl p-6">
-                    <div className="flex items-center justify-between mb-2">
-                        <TrendingUp className="w-5 h-5 text-green-400" />
-                    </div>
-                    <p className="text-gray-400 text-sm">Total 8 Semanas</p>
-                    <p className="text-3xl font-bold text-white">
-                        {weeklyData.reduce((acc, w) => acc + w.completedVideos, 0)}
-                    </p>
-                    <p className="text-gray-500 text-xs mt-1">
-                        Média: {(weeklyData.reduce((acc, w) => acc + w.completedVideos, 0) / 8).toFixed(0)} por semana
-                    </p>
-                </div>
-            </div>
-
-            {/* Weekly Charts */}
-            <div className="grid grid-cols-2 gap-6">
-                {/* Volume Chart */}
-                <div className="bg-[#12121a] border border-purple-900/30 rounded-xl p-6">
-                    <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-                        <Video className="w-5 h-5 text-purple-400" />
-                        Volume de Entregas por Semana
-                    </h2>
-                    <div className="flex items-end gap-2 h-40">
-                        {weeklyData.map((week, idx) => (
-                            <div key={idx} className="flex-1 flex flex-col items-center">
+                    {/* Lista de editores */}
+                    <div className="space-y-1 max-h-[calc(100vh-300px)] overflow-y-auto">
+                        {editorsData.map(editor => (
+                            <div
+                                key={editor.id}
+                                onClick={() => setSelectedEditorId(editor.id)}
+                                className={`
+                                    flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-all
+                                    ${selectedEditorId === editor.id
+                                        ? 'bg-purple-600/30 border border-purple-500/50'
+                                        : 'bg-[#12121a] border border-transparent hover:border-purple-500/30'
+                                    }
+                                `}
+                            >
                                 <div
-                                    className={`w-full rounded-t transition-all ${
-                                        idx === weeklyData.length - 1 ? 'bg-purple-500' : 'bg-purple-600/40'
-                                    }`}
-                                    style={{ height: `${(week.completedVideos / maxVideos) * 100}%`, minHeight: 4 }}
-                                />
-                                <span className="text-xs text-gray-500 mt-2">{week.weekLabel}</span>
-                                <span className="text-xs text-white font-medium">{week.completedVideos}</span>
+                                    className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm flex-shrink-0"
+                                    style={{ backgroundColor: editor.teamColor }}
+                                >
+                                    {editor.initials}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-white font-medium truncate">{editor.name}</span>
+                                        {editor.alterationRate >= 35 && (
+                                            <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0" />
+                                        )}
+                                    </div>
+                                    <span className="text-gray-500 text-xs">
+                                        {editor.videosWithAlteration}/{editor.totalVideos} alterações
+                                    </span>
+                                </div>
+                                <span className={`text-lg font-bold ${
+                                    editor.alterationRate >= 35 ? 'text-red-400' :
+                                    editor.alterationRate >= 20 ? 'text-yellow-400' : 'text-green-400'
+                                }`}>
+                                    {editor.alterationRate}%
+                                </span>
                             </div>
                         ))}
                     </div>
                 </div>
 
-                {/* Alteration Rate Chart */}
-                <div className="bg-[#12121a] border border-purple-900/30 rounded-xl p-6">
-                    <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-                        <Target className="w-5 h-5 text-amber-400" />
-                        Taxa de Alteração por Semana
-                    </h2>
-                    <div className="relative">
-                        {/* Meta line at 35% */}
-                        <div
-                            className="absolute w-full border-t-2 border-dashed border-red-500/50"
-                            style={{ bottom: `${(35 / maxAlteration) * 100}%` }}
-                        >
-                            <span className="absolute right-0 -top-5 text-xs text-red-400">Meta: 35%</span>
+                {/* Área de conteúdo */}
+                <div className="flex-1 min-w-0">
+                    {/* Header do editor/setor selecionado */}
+                    <div className="bg-[#12121a] border border-purple-900/30 rounded-xl p-4 mb-4">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                                {selectedEditor ? (
+                                    <>
+                                        <div
+                                            className="w-12 h-12 rounded-full flex items-center justify-center text-white font-bold"
+                                            style={{ backgroundColor: selectedEditor.teamColor }}
+                                        >
+                                            {selectedEditor.initials}
+                                        </div>
+                                        <div>
+                                            <h2 className="text-xl font-bold text-white">{selectedEditor.name}</h2>
+                                            <p className="text-gray-500 text-sm">
+                                                {selectedEditor.totalVideos} vídeos • {selectedEditor.videosWithAlteration} alterações
+                                            </p>
+                                        </div>
+                                    </>
+                                ) : (
+                                    <>
+                                        <div className="w-12 h-12 rounded-full bg-purple-600/30 flex items-center justify-center">
+                                            <Users className="w-6 h-6 text-purple-400" />
+                                        </div>
+                                        <div>
+                                            <h2 className="text-xl font-bold text-white">Visão Geral do Setor</h2>
+                                            <p className="text-gray-500 text-sm">
+                                                {editorsData.length} editores • {totalVideos8Weeks} vídeos nas últimas 8 semanas
+                                            </p>
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                            <div className="text-right">
+                                <div className={`text-3xl font-bold ${
+                                    currentWeek?.alterationRate >= 35 ? 'text-red-400' :
+                                    currentWeek?.alterationRate >= 20 ? 'text-yellow-400' : 'text-green-400'
+                                }`}>
+                                    {currentWeek?.alterationRate || 0}%
+                                </div>
+                                <p className="text-gray-500 text-xs">esta semana</p>
+                            </div>
                         </div>
+                    </div>
 
-                        <div className="flex items-end gap-2 h-40">
-                            {weeklyData.map((week, idx) => {
-                                const barColor = week.alterationRate < 20
-                                    ? 'bg-green-500'
-                                    : week.alterationRate < 35
-                                        ? 'bg-amber-500'
-                                        : 'bg-red-500';
-
-                                return (
+                    {/* Gráficos lado a lado */}
+                    <div className="grid grid-cols-2 gap-4 mb-4">
+                        {/* Volume */}
+                        <div className="bg-[#12121a] border border-purple-900/30 rounded-xl p-4">
+                            <h3 className="text-sm font-medium text-gray-400 mb-3 flex items-center gap-2">
+                                <Video className="w-4 h-4 text-purple-400" />
+                                Volume por Semana
+                            </h3>
+                            <div className="flex items-end gap-1 h-24">
+                                {displayData.map((week, idx) => (
                                     <div key={idx} className="flex-1 flex flex-col items-center">
                                         <div
                                             className={`w-full rounded-t transition-all ${
-                                                idx === weeklyData.length - 1 ? barColor : `${barColor}/60`
+                                                idx === displayData.length - 1 ? 'bg-purple-500' : 'bg-purple-600/40'
                                             }`}
-                                            style={{ height: `${(week.alterationRate / maxAlteration) * 100}%`, minHeight: 4 }}
+                                            style={{ height: `${(week.completedVideos / maxVideos) * 100}%`, minHeight: 2 }}
                                         />
-                                        <span className="text-xs text-gray-500 mt-2">{week.weekLabel}</span>
-                                        <span className={`text-xs font-medium ${
-                                            week.alterationRate < 20 ? 'text-green-400' :
-                                            week.alterationRate < 35 ? 'text-amber-400' : 'text-red-400'
-                                        }`}>
-                                            {week.alterationRate}%
-                                        </span>
+                                        <span className="text-[10px] text-gray-600 mt-1">{week.weekLabel}</span>
                                     </div>
-                                );
-                            })}
+                                ))}
+                            </div>
+                            <div className="flex justify-between mt-2 text-xs">
+                                <span className="text-gray-500">8 semanas</span>
+                                <span className="text-white font-medium">{currentWeek?.completedVideos || 0} esta semana</span>
+                            </div>
+                        </div>
+
+                        {/* Taxa de Alteração */}
+                        <div className="bg-[#12121a] border border-purple-900/30 rounded-xl p-4">
+                            <h3 className="text-sm font-medium text-gray-400 mb-3 flex items-center gap-2">
+                                <Target className="w-4 h-4 text-amber-400" />
+                                Taxa de Alteração
+                            </h3>
+                            <div className="flex items-end gap-1 h-24 relative">
+                                {/* Linha de meta 35% */}
+                                <div
+                                    className="absolute w-full border-t border-dashed border-red-500/40"
+                                    style={{ bottom: `${(35 / maxAlteration) * 100}%` }}
+                                />
+                                {displayData.map((week, idx) => {
+                                    const barColor = week.alterationRate < 20
+                                        ? 'bg-green-500'
+                                        : week.alterationRate < 35
+                                            ? 'bg-amber-500'
+                                            : 'bg-red-500';
+                                    return (
+                                        <div key={idx} className="flex-1 flex flex-col items-center">
+                                            <div
+                                                className={`w-full rounded-t transition-all ${
+                                                    idx === displayData.length - 1 ? barColor : `${barColor}/50`
+                                                }`}
+                                                style={{ height: `${(week.alterationRate / maxAlteration) * 100}%`, minHeight: 2 }}
+                                            />
+                                            <span className="text-[10px] text-gray-600 mt-1">{week.weekLabel}</span>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                            <div className="flex justify-between mt-2 text-xs">
+                                <span className="text-red-400/60">meta: 35%</span>
+                                <span className={`font-medium ${
+                                    currentWeek?.alterationRate >= 35 ? 'text-red-400' :
+                                    currentWeek?.alterationRate >= 20 ? 'text-yellow-400' : 'text-green-400'
+                                }`}>
+                                    {currentWeek?.alterationRate || 0}% esta semana
+                                </span>
+                            </div>
                         </div>
                     </div>
-                </div>
-            </div>
 
-            {/* Editing Time Chart */}
-            <div className="bg-[#12121a] border border-purple-900/30 rounded-xl p-6">
-                <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-                    <Clock className="w-5 h-5 text-blue-400" />
-                    Tempo Médio de Edição por Semana (horas)
-                </h2>
-                <div className="flex items-end gap-3 h-32">
-                    {weeklyData.map((week, idx) => (
-                        <div key={idx} className="flex-1 flex flex-col items-center">
-                            <div
-                                className={`w-full rounded-t transition-all ${
-                                    idx === weeklyData.length - 1 ? 'bg-blue-500' : 'bg-blue-600/40'
-                                }`}
-                                style={{ height: `${(week.avgEditingTime / maxEditingTime) * 100}%`, minHeight: 4 }}
-                            />
-                            <span className="text-xs text-gray-500 mt-2">{week.weekLabel}</span>
-                            <span className="text-xs text-white font-medium">{week.avgEditingTime}h</span>
+                    {/* Análise */}
+                    <div className="bg-purple-600/10 border border-purple-500/30 rounded-xl p-4">
+                        <h3 className="text-purple-300 font-medium mb-3 text-sm">
+                            Análise Automática {selectedEditor && `- ${selectedEditor.name}`}
+                        </h3>
+                        <div className="space-y-2 text-sm">
+                            {(() => {
+                                const totalFirstHalf = displayData.slice(0, 4).reduce((a, w) => a + w.completedVideos, 0);
+                                const totalSecondHalf = displayData.slice(4).reduce((a, w) => a + w.completedVideos, 0);
+                                const trend = totalSecondHalf > totalFirstHalf ? 'crescente' : totalSecondHalf < totalFirstHalf ? 'decrescente' : 'estável';
+
+                                return (
+                                    <p className="flex items-center gap-2 text-gray-300">
+                                        {trend === 'crescente' ? (
+                                            <TrendingUp className="w-4 h-4 text-green-400" />
+                                        ) : trend === 'decrescente' ? (
+                                            <TrendingDown className="w-4 h-4 text-red-400" />
+                                        ) : (
+                                            <Minus className="w-4 h-4 text-gray-400" />
+                                        )}
+                                        <strong>Volume:</strong> Tendência {trend} ({totalFirstHalf} → {totalSecondHalf} vídeos)
+                                    </p>
+                                );
+                            })()}
+
+                            {(() => {
+                                const avgFirst = displayData.slice(0, 4).reduce((a, w) => a + w.alterationRate, 0) / 4;
+                                const avgSecond = displayData.slice(4).reduce((a, w) => a + w.alterationRate, 0) / 4;
+                                const trend = avgSecond < avgFirst ? 'melhorando' : avgSecond > avgFirst ? 'piorando' : 'estável';
+
+                                return (
+                                    <p className="flex items-center gap-2 text-gray-300">
+                                        {trend === 'melhorando' ? (
+                                            <TrendingDown className="w-4 h-4 text-green-400" />
+                                        ) : trend === 'piorando' ? (
+                                            <TrendingUp className="w-4 h-4 text-red-400" />
+                                        ) : (
+                                            <Minus className="w-4 h-4 text-gray-400" />
+                                        )}
+                                        <strong>Qualidade:</strong> Taxa {trend} ({avgFirst.toFixed(1)}% → {avgSecond.toFixed(1)}%)
+                                    </p>
+                                );
+                            })()}
+
+                            <p className="flex items-center gap-2 text-gray-300 pt-2 border-t border-purple-500/30">
+                                <Target className="w-4 h-4 text-purple-400" />
+                                <strong>Status:</strong> {
+                                    currentWeek?.alterationRate < 20
+                                        ? selectedEditor ? 'Excelente performance!' : 'Setor em excelente performance!'
+                                        : currentWeek?.alterationRate < 35
+                                            ? 'Dentro da meta, mas com pontos de atenção.'
+                                            : 'Acima da meta - ação necessária.'
+                                }
+                            </p>
                         </div>
-                    ))}
-                </div>
-            </div>
-
-            {/* Monthly Comparison */}
-            <div className="bg-[#12121a] border border-purple-900/30 rounded-xl p-6">
-                <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-                    <Calendar className="w-5 h-5 text-green-400" />
-                    Comparativo Mensal (Últimos 3 meses)
-                </h2>
-                <div className="grid grid-cols-3 gap-6">
-                    {monthlyData.map((month, idx) => {
-                        const isCurrentMonth = idx === monthlyData.length - 1;
-                        const prevMonth = monthlyData[idx - 1];
-                        const volumeChange = prevMonth && prevMonth.videos > 0
-                            ? ((month.videos - prevMonth.videos) / prevMonth.videos * 100)
-                            : 0;
-                        const alterationChange = prevMonth
-                            ? month.alterationRate - prevMonth.alterationRate
-                            : 0;
-
-                        return (
-                            <div
-                                key={month.name}
-                                className={`p-4 rounded-lg border ${
-                                    isCurrentMonth
-                                        ? 'bg-purple-600/20 border-purple-500/50'
-                                        : 'bg-[#0a0a0f] border-purple-900/30'
-                                }`}
-                            >
-                                <h3 className={`text-lg font-bold mb-3 ${isCurrentMonth ? 'text-purple-300' : 'text-gray-300'}`}>
-                                    {month.name}
-                                    {isCurrentMonth && <span className="text-xs ml-2 text-purple-400">(Atual)</span>}
-                                </h3>
-
-                                <div className="space-y-3">
-                                    <div className="flex justify-between items-center">
-                                        <span className="text-gray-400 text-sm">Vídeos</span>
-                                        <div className="flex items-center gap-2">
-                                            <span className="text-white font-bold">{month.videos}</span>
-                                            {idx > 0 && (
-                                                <span className={`text-xs ${getTrendColor(volumeChange)}`}>
-                                                    {volumeChange > 0 ? '+' : ''}{volumeChange.toFixed(0)}%
-                                                </span>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    <div className="flex justify-between items-center">
-                                        <span className="text-gray-400 text-sm">Taxa Alteração</span>
-                                        <div className="flex items-center gap-2">
-                                            <span className={`font-bold ${
-                                                month.alterationRate < 20 ? 'text-green-400' :
-                                                month.alterationRate < 35 ? 'text-amber-400' : 'text-red-400'
-                                            }`}>
-                                                {month.alterationRate}%
-                                            </span>
-                                            {idx > 0 && (
-                                                <span className={`text-xs ${getTrendColor(alterationChange, true)}`}>
-                                                    {alterationChange > 0 ? '+' : ''}{alterationChange.toFixed(1)}
-                                                </span>
-                                            )}
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        );
-                    })}
-                </div>
-            </div>
-
-            {/* Analysis Summary */}
-            <div className="bg-purple-600/10 border border-purple-500/30 rounded-xl p-6">
-                <h2 className="text-lg font-semibold text-purple-300 mb-4">
-                    Análise Automática
-                </h2>
-                <div className="space-y-3 text-sm">
-                    {/* Volume trend */}
-                    {(() => {
-                        const totalFirstHalf = weeklyData.slice(0, 4).reduce((a, w) => a + w.completedVideos, 0);
-                        const totalSecondHalf = weeklyData.slice(4).reduce((a, w) => a + w.completedVideos, 0);
-                        const trend = totalSecondHalf > totalFirstHalf ? 'crescente' : totalSecondHalf < totalFirstHalf ? 'decrescente' : 'estável';
-
-                        return (
-                            <p className="flex items-center gap-2">
-                                {trend === 'crescente' ? (
-                                    <TrendingUp className="w-4 h-4 text-green-400" />
-                                ) : trend === 'decrescente' ? (
-                                    <TrendingDown className="w-4 h-4 text-red-400" />
-                                ) : (
-                                    <Minus className="w-4 h-4 text-gray-400" />
-                                )}
-                                <span className="text-gray-300">
-                                    <strong>Volume:</strong> Tendência {trend} nas últimas 8 semanas
-                                    ({totalFirstHalf} vídeos nas primeiras 4 semanas vs {totalSecondHalf} nas últimas 4)
-                                </span>
-                            </p>
-                        );
-                    })()}
-
-                    {/* Alteration trend */}
-                    {(() => {
-                        const avgFirst = weeklyData.slice(0, 4).reduce((a, w) => a + w.alterationRate, 0) / 4;
-                        const avgSecond = weeklyData.slice(4).reduce((a, w) => a + w.alterationRate, 0) / 4;
-                        const trend = avgSecond < avgFirst ? 'melhorando' : avgSecond > avgFirst ? 'piorando' : 'estável';
-
-                        return (
-                            <p className="flex items-center gap-2">
-                                {trend === 'melhorando' ? (
-                                    <TrendingDown className="w-4 h-4 text-green-400" />
-                                ) : trend === 'piorando' ? (
-                                    <TrendingUp className="w-4 h-4 text-red-400" />
-                                ) : (
-                                    <Minus className="w-4 h-4 text-gray-400" />
-                                )}
-                                <span className="text-gray-300">
-                                    <strong>Qualidade:</strong> Taxa de alteração {trend}
-                                    ({avgFirst.toFixed(1)}% média primeiras 4 semanas vs {avgSecond.toFixed(1)}% últimas 4)
-                                </span>
-                            </p>
-                        );
-                    })()}
-
-                    {/* Current status */}
-                    <p className="flex items-center gap-2 mt-4 pt-4 border-t border-purple-500/30">
-                        <Target className="w-4 h-4 text-purple-400" />
-                        <span className="text-gray-300">
-                            <strong>Status Atual:</strong> {
-                                currentWeek?.alterationRate < 20
-                                    ? 'Setor em excelente performance!'
-                                    : currentWeek?.alterationRate < 35
-                                        ? 'Setor dentro da meta, mas com pontos de atenção.'
-                                        : 'Setor acima da meta de alteração - ação necessária.'
-                            }
-                        </span>
-                    </p>
+                    </div>
                 </div>
             </div>
         </div>
