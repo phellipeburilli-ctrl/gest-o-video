@@ -99,38 +99,30 @@ export function DiagnosticoView({
     // Calculate average alteration rate
     const avgAlterationRate = teamMetrics.reduce((acc, t) => acc + t.alterationRate, 0) / teamMetrics.length;
 
-    // Generate alerts
+    // Generate alerts - CADA PESSOA APARECE APENAS UMA VEZ
+    // Baseado na taxa de alteração: >= 35% crítico, 20-35% atenção
     const alerts: EditorAlert[] = [];
+    const alertedEditors = new Set<string>(); // Evitar duplicação
 
     kpis.editors.forEach(editor => {
         const member = getMemberByName(editor.editorName);
         const team = getTeamByMemberName(editor.editorName);
         if (!member || !team) return;
+        if (alertedEditors.has(editor.editorName)) return; // Já alertado
 
         const alterationRate = editor.phaseMetrics?.alterationRate || 0;
 
-        // Alert: High alteration rate (above average + 10%)
-        if (alterationRate > avgAlterationRate + 10) {
+        // Só mostra alertas para quem está >= 35% (crítico)
+        if (alterationRate >= 35) {
             alerts.push({
                 name: editor.editorName,
                 teamName: team.name,
                 type: 'alteration',
                 value: alterationRate,
-                threshold: avgAlterationRate,
+                threshold: 35,
                 color: member.color,
             });
-        }
-
-        // Alert: VSL with high alteration (critical focus)
-        if (team.id === 'vsl' && alterationRate > 30) {
-            alerts.push({
-                name: editor.editorName,
-                teamName: team.name,
-                type: 'vsl',
-                value: alterationRate,
-                threshold: 30,
-                color: member.color,
-            });
+            alertedEditors.add(editor.editorName);
         }
     });
 
