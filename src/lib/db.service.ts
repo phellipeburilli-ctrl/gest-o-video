@@ -147,6 +147,7 @@ export async function getEditorsByTeam(teamId: string): Promise<DbEditor[]> {
 }
 
 export async function upsertEditor(editor: Partial<DbEditor> & { clickup_id: number; name: string }): Promise<DbEditor> {
+    const admissionDateStr = editor.admission_date ? editor.admission_date.toISOString().split('T')[0] : null;
     const result = await sql<DbEditor>`
         INSERT INTO editors (clickup_id, name, email, role, color, team_id, admission_date, status)
         VALUES (
@@ -156,7 +157,7 @@ export async function upsertEditor(editor: Partial<DbEditor> & { clickup_id: num
             ${editor.role || 'editor'},
             ${editor.color || '#6B7280'},
             ${editor.team_id || null},
-            ${editor.admission_date || null},
+            ${admissionDateStr},
             ${editor.status || 'active'}
         )
         ON CONFLICT (clickup_id) DO UPDATE SET
