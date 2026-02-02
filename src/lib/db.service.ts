@@ -291,14 +291,16 @@ export async function getOneOnOneRecords(): Promise<DbOneOnOneRecord[]> {
 }
 
 export async function upsertOneOnOneRecord(record: Partial<DbOneOnOneRecord> & { editor_name: string }): Promise<DbOneOnOneRecord> {
+    const lastOneOnOneStr = record.last_one_on_one ? record.last_one_on_one.toISOString().split('T')[0] : null;
+    const nextSuggestedStr = record.next_suggested_date ? record.next_suggested_date.toISOString().split('T')[0] : null;
     const result = await sql<DbOneOnOneRecord>`
         INSERT INTO one_on_one_records (editor_id, editor_name, team_name, last_one_on_one, next_suggested_date, notes, status)
         VALUES (
             ${record.editor_id || null},
             ${record.editor_name},
             ${record.team_name || null},
-            ${record.last_one_on_one || null},
-            ${record.next_suggested_date || null},
+            ${lastOneOnOneStr},
+            ${nextSuggestedStr},
             ${record.notes || null},
             ${record.status || 'pending'}
         )
