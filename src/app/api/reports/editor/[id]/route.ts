@@ -160,8 +160,13 @@ export async function GET(
         const monthlyMetrics = await getEditorMonthlyMetrics(editorId);
         const quarterlyMetrics = await getEditorQuarterlyMetrics(editorId, 4);
 
-        // Buscar tasks recentes
-        const recentTasks = await getTasksByEditor(editorId, 10);
+        // Buscar tasks recentes (com tratamento seguro)
+        let recentTasks: Awaited<ReturnType<typeof getTasksByEditor>> = [];
+        try {
+            recentTasks = await getTasksByEditor(editorId, 10);
+        } catch (e) {
+            console.error('[Editor Analysis] Error fetching tasks:', e);
+        }
 
         // Calcular meses na empresa
         const monthsInCompany = calculateMonthsInCompany(editor.admission_date);
@@ -241,17 +246,16 @@ export async function GET(
             areasToImprove: evolutionAnalysis?.areasToImprove || [],
             overallScore: evolutionAnalysis?.overallScore || 50,
             recentTasks: recentTasks.map(t => {
-                // date_created e date_closed são timestamps em ms
+                // Converter datas de forma segura - date_created/date_closed podem ser bigint no PG
                 let dateCreatedStr = '';
                 let dateClosedStr: string | null = null;
 
                 try {
-                    if (t.date_created) {
-                        const dateCreated = typeof t.date_created === 'number'
-                            ? new Date(t.date_created)
-                            : new Date(t.date_created);
-                        if (!isNaN(dateCreated.getTime())) {
-                            dateCreatedStr = dateCreated.toISOString().split('T')[0];
+                    if (t.date_created != null) {
+                        // Converter para número primeiro (caso seja string ou bigint)
+                        const timestamp = Number(t.date_created);
+                        if (!isNaN(timestamp) && timestamp > 0) {
+                            dateCreatedStr = new Date(timestamp).toISOString().split('T')[0];
                         }
                     }
                 } catch {
@@ -259,12 +263,10 @@ export async function GET(
                 }
 
                 try {
-                    if (t.date_closed) {
-                        const dateClosed = typeof t.date_closed === 'number'
-                            ? new Date(t.date_closed)
-                            : new Date(t.date_closed);
-                        if (!isNaN(dateClosed.getTime())) {
-                            dateClosedStr = dateClosed.toISOString().split('T')[0];
+                    if (t.date_closed != null) {
+                        const timestamp = Number(t.date_closed);
+                        if (!isNaN(timestamp) && timestamp > 0) {
+                            dateClosedStr = new Date(timestamp).toISOString().split('T')[0];
                         }
                     }
                 } catch {
