@@ -152,13 +152,36 @@ export async function GET(
             return NextResponse.json({ error: 'Editor não encontrado' }, { status: 404 });
         }
 
-        // Buscar análise de evolução
-        const evolutionAnalysis = await getEditorEvolutionAnalysis(editorId);
+        // Buscar análise de evolução (com tratamento de erro)
+        let evolutionAnalysis = null;
+        try {
+            evolutionAnalysis = await getEditorEvolutionAnalysis(editorId);
+        } catch (e) {
+            console.error('[Editor Analysis] Error in evolutionAnalysis:', e);
+        }
 
-        // Buscar métricas
-        const weeklyMetrics = await getEditorWeeklyMetrics(editorId, 8);
-        const monthlyMetrics = await getEditorMonthlyMetrics(editorId);
-        const quarterlyMetrics = await getEditorQuarterlyMetrics(editorId, 4);
+        // Buscar métricas (com tratamento de erro)
+        let weeklyMetrics: Awaited<ReturnType<typeof getEditorWeeklyMetrics>> = [];
+        let monthlyMetrics: Awaited<ReturnType<typeof getEditorMonthlyMetrics>> = [];
+        let quarterlyMetrics: Awaited<ReturnType<typeof getEditorQuarterlyMetrics>> = [];
+
+        try {
+            weeklyMetrics = await getEditorWeeklyMetrics(editorId, 8);
+        } catch (e) {
+            console.error('[Editor Analysis] Error fetching weekly:', e);
+        }
+
+        try {
+            monthlyMetrics = await getEditorMonthlyMetrics(editorId);
+        } catch (e) {
+            console.error('[Editor Analysis] Error fetching monthly:', e);
+        }
+
+        try {
+            quarterlyMetrics = await getEditorQuarterlyMetrics(editorId, 4);
+        } catch (e) {
+            console.error('[Editor Analysis] Error fetching quarterly:', e);
+        }
 
         // Buscar tasks recentes (com tratamento seguro)
         let recentTasks: Awaited<ReturnType<typeof getTasksByEditor>> = [];
@@ -168,8 +191,13 @@ export async function GET(
             console.error('[Editor Analysis] Error fetching tasks:', e);
         }
 
-        // Calcular meses na empresa
-        const monthsInCompany = calculateMonthsInCompany(editor.admission_date);
+        // Calcular meses na empresa (de forma segura)
+        let monthsInCompany = 0;
+        try {
+            monthsInCompany = calculateMonthsInCompany(editor.admission_date);
+        } catch (e) {
+            console.error('[Editor Analysis] Error calculating months:', e);
+        }
 
         // Período atual
         const currentWeek = weeklyMetrics[0] || null;
