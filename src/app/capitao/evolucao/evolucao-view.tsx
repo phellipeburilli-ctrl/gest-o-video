@@ -167,7 +167,7 @@ export function EvolucaoView({ kpis, allVideos, lastUpdated }: EvolucaoViewProps
                 dbId: CLICKUP_TO_DB_ID[member.id] || null,
                 totalVideos: editorVideos.filter(v => v.status === 'COMPLETED').length,
                 alterationRate: parseFloat(alterationRate.toFixed(1)),
-                avgEditingHours: editorStats?.phaseMetrics?.avgEditingTime || 0,
+                avgEditingHours: editorStats?.phaseMetrics?.avgEditingTimeHours || 0,
                 daysUntilPromotion,
                 isInAuditMode,
                 canBePromoted: monthsInCompany >= 12 && alterationRate <= 5,
@@ -445,7 +445,7 @@ export function EvolucaoView({ kpis, allVideos, lastUpdated }: EvolucaoViewProps
                                             </div>
 
                                             {/* Tendência + Indicadores */}
-                                            {analysisData?.evolution.weeklyTrend.length > 0 && (
+                                            {analysisData?.evolution?.weeklyTrend && analysisData.evolution.weeklyTrend.length > 0 && (
                                                 <div className="bg-[#12121a] border border-purple-900/30 rounded-xl p-4">
                                                     <div className="flex items-center justify-between mb-4">
                                                         <h3 className="text-white font-medium flex items-center gap-2">
@@ -561,7 +561,7 @@ export function EvolucaoView({ kpis, allVideos, lastUpdated }: EvolucaoViewProps
                                             )}
 
                                             {/* Recomendações */}
-                                            {analysisData?.recommendations.length > 0 && (
+                                            {analysisData?.recommendations && analysisData.recommendations.length > 0 && (
                                                 <div className="bg-blue-950/30 border border-blue-900/50 rounded-xl p-4">
                                                     <h3 className="text-blue-400 font-medium mb-3 flex items-center gap-2 text-sm">
                                                         <Lightbulb className="w-4 h-4" /> Recomendações
@@ -628,7 +628,7 @@ export function EvolucaoView({ kpis, allVideos, lastUpdated }: EvolucaoViewProps
                                     {activeTab === 'history' && (
                                         <div className="space-y-4">
                                             {/* Histórico Mensal */}
-                                            {analysisData?.evolution.monthlyTrend.length > 0 && (
+                                            {analysisData?.evolution?.monthlyTrend && analysisData.evolution.monthlyTrend.length > 0 && (
                                                 <div className="bg-[#12121a] border border-purple-900/30 rounded-xl p-4">
                                                     <h3 className="text-white font-medium mb-4 flex items-center gap-2">
                                                         <Calendar className="w-4 h-4 text-purple-400" />
@@ -669,7 +669,7 @@ export function EvolucaoView({ kpis, allVideos, lastUpdated }: EvolucaoViewProps
                                             )}
 
                                             {/* Últimas Tasks */}
-                                            {analysisData?.recentTasks.length > 0 && (
+                                            {analysisData?.recentTasks && analysisData.recentTasks.length > 0 && (
                                                 <div className="bg-[#12121a] border border-purple-900/30 rounded-xl p-4">
                                                     <h3 className="text-white font-medium mb-4 flex items-center gap-2">
                                                         <Video className="w-4 h-4 text-purple-400" />

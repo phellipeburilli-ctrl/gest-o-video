@@ -164,14 +164,14 @@ export async function POST() {
 
         // Criar mapa de URL para task/editor
         const urlToTaskMap = new Map<string, { taskId: string; editorId: number | null; editorName: string | null }>();
-        for (const task of tasksWithAlteration) {
-            const originalTask = audiovisualTasks.find(t => t.id === task.taskId);
-            const assignee = originalTask?.assignees?.[0];
+        for (const feedbackItem of tasksWithAlteration) {
+            const taskId = feedbackItem.task.id;
+            const assignee = feedbackItem.task.assignees?.[0];
             const editorInfo = assignee ? CLICKUP_TO_EDITOR_MAP[assignee.id] : null;
 
-            for (const url of task.frameIoLinks) {
+            for (const url of feedbackItem.frameIoLinks) {
                 urlToTaskMap.set(url, {
-                    taskId: task.taskId,
+                    taskId: taskId,
                     editorId: editorInfo?.dbId || null,
                     editorName: editorInfo?.name || assignee?.username || null
                 });

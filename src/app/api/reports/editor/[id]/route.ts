@@ -189,9 +189,7 @@ export async function GET(
                 team: editor.team_id,
                 role: editor.role,
                 admissionDate: editor.admission_date
-                    ? (typeof editor.admission_date === 'string'
-                        ? editor.admission_date.split('T')[0]
-                        : editor.admission_date.toISOString().split('T')[0])
+                    ? String(editor.admission_date).split('T')[0]
                     : null,
                 monthsInCompany,
                 status: editor.status
