@@ -245,43 +245,14 @@ export async function GET(
             strengths: evolutionAnalysis?.strengths || [],
             areasToImprove: evolutionAnalysis?.areasToImprove || [],
             overallScore: evolutionAnalysis?.overallScore || 50,
-            recentTasks: recentTasks.map(t => {
-                // Converter datas de forma segura - date_created/date_closed podem ser bigint no PG
-                let dateCreatedStr = '';
-                let dateClosedStr: string | null = null;
-
-                try {
-                    if (t.date_created != null) {
-                        // Converter para número primeiro (caso seja string ou bigint)
-                        const timestamp = Number(t.date_created);
-                        if (!isNaN(timestamp) && timestamp > 0) {
-                            dateCreatedStr = new Date(timestamp).toISOString().split('T')[0];
-                        }
-                    }
-                } catch {
-                    dateCreatedStr = '';
-                }
-
-                try {
-                    if (t.date_closed != null) {
-                        const timestamp = Number(t.date_closed);
-                        if (!isNaN(timestamp) && timestamp > 0) {
-                            dateClosedStr = new Date(timestamp).toISOString().split('T')[0];
-                        }
-                    }
-                } catch {
-                    dateClosedStr = null;
-                }
-
-                return {
-                    id: t.id,
-                    title: t.title,
-                    status: t.status,
-                    videoType: t.video_type,
-                    dateCreated: dateCreatedStr,
-                    dateClosed: dateClosedStr
-                };
-            }),
+            recentTasks: recentTasks.map(t => ({
+                id: t.id,
+                title: t.title,
+                status: t.status,
+                videoType: t.video_type,
+                dateCreated: t.date_created ? String(t.date_created) : '',
+                dateClosed: t.date_closed ? String(t.date_closed) : null
+            })),
             recommendations: generateRecommendations(
                 currentMonth?.alteration_rate || currentWeek?.alteration_rate || 0,
                 currentWeek?.productivity_score || 50,
