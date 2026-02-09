@@ -1,138 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
     getEditorById,
-    getEditorEvolutionAnalysis,
     getEditorWeeklyMetrics,
     getEditorMonthlyMetrics,
-    getEditorQuarterlyMetrics,
     getTasksByEditor,
-    DbTask
 } from '@/lib/db.service';
 
-// =====================================================
-// API DE ANÁLISE INDIVIDUAL DO EDITOR
-// =====================================================
-
 export const dynamic = 'force-dynamic';
-
-interface EditorAnalysisReport {
-    editor: {
-        id: number;
-        name: string;
-        team: string | null;
-        role: string;
-        admissionDate: string | null;
-        monthsInCompany: number;
-        status: string;
-    };
-    currentPeriod: {
-        week: {
-            totalVideos: number;
-            alterationRate: number;
-            productivityScore: number;
-            qualityScore: number;
-        } | null;
-        month: {
-            totalVideos: number;
-            alterationRate: number;
-            totalEditingHours: number;
-            avgEditingHours: number;
-        } | null;
-    };
-    evolution: {
-        weeklyTrend: Array<{
-            period: string;
-            videos: number;
-            alterationRate: number;
-            productivityScore: number;
-        }>;
-        monthlyTrend: Array<{
-            period: string;
-            videos: number;
-            alterationRate: number;
-            editingHours: number;
-        }>;
-        quarterlyTrend: Array<{
-            period: string;
-            videos: number;
-            alterationRate: number;
-            ranking: number;
-        }>;
-    };
-    improvements: {
-        alterationRateChange: number;
-        productivityChange: number;
-        volumeChange: number;
-        trend: 'improving' | 'stable' | 'declining';
-    };
-    strengths: string[];
-    areasToImprove: string[];
-    overallScore: number;
-    recentTasks: Array<{
-        id: string;
-        title: string;
-        status: string;
-        videoType: string | null;
-        dateCreated: string;
-        dateClosed: string | null;
-    }>;
-    recommendations: string[];
-}
-
-function calculateMonthsInCompany(admissionDate: Date | string | null): number {
-    if (!admissionDate) return 0;
-    try {
-        const now = new Date();
-        const admission = typeof admissionDate === 'string' ? new Date(admissionDate) : admissionDate;
-        if (isNaN(admission.getTime())) return 0;
-        const diffMs = now.getTime() - admission.getTime();
-        return Math.floor(diffMs / (1000 * 60 * 60 * 24 * 30));
-    } catch {
-        return 0;
-    }
-}
-
-function generateRecommendations(
-    alterationRate: number,
-    productivityScore: number,
-    volumeChange: number,
-    monthsInCompany: number
-): string[] {
-    const recommendations: string[] = [];
-
-    // Recomendações baseadas em taxa de alteração
-    if (alterationRate > 30) {
-        recommendations.push('📋 Agendar sessão de feedback focada em entender padrões de erro recorrentes.');
-        recommendations.push('🎯 Definir checklist de qualidade antes da entrega.');
-    } else if (alterationRate > 20) {
-        recommendations.push('👀 Revisar últimos vídeos com alteração para identificar padrões.');
-    }
-
-    // Recomendações baseadas em produtividade
-    if (productivityScore < 50) {
-        recommendations.push('⏱️ Avaliar se há gargalos no processo ou necessidade de treinamento.');
-        recommendations.push('🤝 Considerar mentoria com editor mais experiente.');
-    }
-
-    // Recomendações baseadas em volume
-    if (volumeChange < -20) {
-        recommendations.push('📉 Volume em queda - verificar se há problemas de demanda ou bloqueios.');
-    }
-
-    // Recomendações por tempo de empresa
-    if (monthsInCompany <= 3) {
-        recommendations.push('🆕 Editor em período de adaptação - acompanhamento mais próximo recomendado.');
-    } else if (monthsInCompany >= 6 && alterationRate <= 15) {
-        recommendations.push('⬆️ Considerar para projetos mais complexos ou promoção.');
-    }
-
-    // Recomendação padrão se tudo estiver bem
-    if (recommendations.length === 0) {
-        recommendations.push('✅ Manter acompanhamento regular. Performance está dentro do esperado.');
-    }
-
-    return recommendations;
-}
 
 export async function GET(
     request: NextRequest,
@@ -152,78 +26,76 @@ export async function GET(
             return NextResponse.json({ error: 'Editor não encontrado' }, { status: 404 });
         }
 
-        // Buscar análise de evolução (com tratamento de erro)
-        let evolutionAnalysis = null;
-        try {
-            evolutionAnalysis = await getEditorEvolutionAnalysis(editorId);
-        } catch (e) {
-            console.error('[Editor Analysis] Error in evolutionAnalysis:', e);
-        }
-
-        // Buscar métricas (com tratamento de erro)
-        let weeklyMetrics: Awaited<ReturnType<typeof getEditorWeeklyMetrics>> = [];
-        let monthlyMetrics: Awaited<ReturnType<typeof getEditorMonthlyMetrics>> = [];
-        let quarterlyMetrics: Awaited<ReturnType<typeof getEditorQuarterlyMetrics>> = [];
-
+        // Buscar métricas semanais
+        let weeklyMetrics: Array<{
+            year_week: string;
+            total_videos: number;
+            alteration_rate: number;
+            productivity_score: number;
+            quality_score: number;
+        }> = [];
         try {
             weeklyMetrics = await getEditorWeeklyMetrics(editorId, 8);
         } catch (e) {
-            console.error('[Editor Analysis] Error fetching weekly:', e);
+            console.error('[Editor] Weekly error:', e);
         }
 
+        // Buscar métricas mensais
+        let monthlyMetrics: Array<{
+            year_month: string;
+            total_videos: number;
+            alteration_rate: number;
+            total_editing_hours: number;
+            avg_editing_hours: number;
+        }> = [];
         try {
             monthlyMetrics = await getEditorMonthlyMetrics(editorId);
         } catch (e) {
-            console.error('[Editor Analysis] Error fetching monthly:', e);
+            console.error('[Editor] Monthly error:', e);
         }
 
-        try {
-            quarterlyMetrics = await getEditorQuarterlyMetrics(editorId, 4);
-        } catch (e) {
-            console.error('[Editor Analysis] Error fetching quarterly:', e);
-        }
-
-        // Buscar tasks recentes (com tratamento seguro)
-        let recentTasks: Awaited<ReturnType<typeof getTasksByEditor>> = [];
+        // Buscar tasks
+        let recentTasks: Array<{
+            id: string;
+            title: string;
+            status: string;
+            video_type: string | null;
+            date_created: number;
+            date_closed: number | null;
+        }> = [];
         try {
             recentTasks = await getTasksByEditor(editorId, 10);
         } catch (e) {
-            console.error('[Editor Analysis] Error fetching tasks:', e);
-        }
-
-        // Calcular meses na empresa (de forma segura)
-        let monthsInCompany = 0;
-        try {
-            monthsInCompany = calculateMonthsInCompany(editor.admission_date);
-        } catch (e) {
-            console.error('[Editor Analysis] Error calculating months:', e);
+            console.error('[Editor] Tasks error:', e);
         }
 
         // Período atual
         const currentWeek = weeklyMetrics[0] || null;
         const currentMonth = monthlyMetrics[0] || null;
 
-        // Determinar tendência
-        let trend: 'improving' | 'stable' | 'declining' = 'stable';
-        if (evolutionAnalysis) {
-            const { alterationRateChange, productivityChange } = evolutionAnalysis.improvements;
-            if (alterationRateChange < -5 && productivityChange > 5) {
-                trend = 'improving';
-            } else if (alterationRateChange > 5 || productivityChange < -10) {
-                trend = 'declining';
+        // Calcular meses na empresa de forma segura
+        let monthsInCompany = 0;
+        if (editor.admission_date) {
+            try {
+                const admStr = String(editor.admission_date);
+                const admDate = new Date(admStr);
+                if (!isNaN(admDate.getTime())) {
+                    const now = new Date();
+                    monthsInCompany = Math.floor((now.getTime() - admDate.getTime()) / (1000 * 60 * 60 * 24 * 30));
+                }
+            } catch {
+                monthsInCompany = 0;
             }
         }
 
-        // Montar relatório
-        const report: EditorAnalysisReport = {
+        // Montar resposta simplificada
+        const response = {
             editor: {
                 id: editor.id,
                 name: editor.name,
                 team: editor.team_id,
                 role: editor.role,
-                admissionDate: editor.admission_date
-                    ? String(editor.admission_date).split('T')[0]
-                    : null,
+                admissionDate: editor.admission_date ? String(editor.admission_date).split('T')[0] : null,
                 monthsInCompany,
                 status: editor.status
             },
@@ -254,46 +126,36 @@ export async function GET(
                     alterationRate: m.alteration_rate,
                     editingHours: m.total_editing_hours
                 })).reverse(),
-                quarterlyTrend: quarterlyMetrics.map(q => ({
-                    period: q.year_quarter,
-                    videos: q.total_videos,
-                    alterationRate: q.alteration_rate,
-                    ranking: q.ranking_position
-                })).reverse()
+                quarterlyTrend: []
             },
-            improvements: evolutionAnalysis ? {
-                ...evolutionAnalysis.improvements,
-                trend
-            } : {
+            improvements: {
                 alterationRateChange: 0,
                 productivityChange: 0,
                 volumeChange: 0,
-                trend: 'stable'
+                trend: 'stable' as const
             },
-            strengths: evolutionAnalysis?.strengths || [],
-            areasToImprove: evolutionAnalysis?.areasToImprove || [],
-            overallScore: evolutionAnalysis?.overallScore || 50,
+            strengths: [] as string[],
+            areasToImprove: [] as string[],
+            overallScore: currentWeek
+                ? Math.round((currentWeek.productivity_score * 0.4) + (currentWeek.quality_score * 0.4) + ((100 - currentWeek.alteration_rate) * 0.2))
+                : 50,
             recentTasks: recentTasks.map(t => ({
                 id: t.id,
                 title: t.title,
                 status: t.status,
                 videoType: t.video_type,
-                dateCreated: t.date_created ? String(t.date_created) : '',
+                dateCreated: String(t.date_created || ''),
                 dateClosed: t.date_closed ? String(t.date_closed) : null
             })),
-            recommendations: generateRecommendations(
-                currentMonth?.alteration_rate || currentWeek?.alteration_rate || 0,
-                currentWeek?.productivity_score || 50,
-                evolutionAnalysis?.improvements.volumeChange || 0,
-                monthsInCompany
-            )
+            recommendations: monthsInCompany <= 3
+                ? ['🆕 Editor em período de adaptação - acompanhamento mais próximo recomendado.']
+                : ['✅ Manter acompanhamento regular. Performance está dentro do esperado.']
         };
 
-        return NextResponse.json(report);
+        return NextResponse.json(response);
 
     } catch (error) {
         console.error('[Editor Analysis] Error:', error);
-        console.error('[Editor Analysis] Stack:', error instanceof Error ? error.stack : 'No stack');
         return NextResponse.json(
             {
                 error: 'Erro ao gerar análise',
