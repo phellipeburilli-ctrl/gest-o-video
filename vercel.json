@@ -5,11 +5,15 @@
     "crons": [
         {
             "path": "/api/feedbacks/update",
-            "schedule": "30 2 * * *"
+            "schedule": "0 * * * *"
         },
         {
             "path": "/api/sync",
             "schedule": "0 2 * * *"
+        },
+        {
+            "path": "/api/evolution/check",
+            "schedule": "0 3 * * *"
         }
     ]
 }
