@@ -6,6 +6,8 @@ import {
     getEditorByClickupId,
     getEditorByName,
     upsertEditorMonthlyMetrics,
+    upsertEditorWeeklyMetrics,
+    upsertEditorQuarterlyMetrics,
     saveDashboardSnapshot,
     getActiveEditors
 } from '@/lib/db.service';
@@ -25,10 +27,56 @@ interface SyncResult {
         tasksProcessed: number;
         tasksSaved: number;
         phaseMetricsSaved: number;
+        weeklyMetricsSaved: number;
         monthlyMetricsSaved: number;
+        quarterlyMetricsSaved: number;
         snapshotSaved: boolean;
         errors: string[];
     };
+}
+
+// Função para obter a semana atual (formato: "2026-W05")
+function getCurrentYearWeek(): { yearWeek: string; weekStart: Date; weekEnd: Date } {
+    const now = new Date();
+    const jan1 = new Date(now.getFullYear(), 0, 1);
+    const days = Math.floor((now.getTime() - jan1.getTime()) / (24 * 60 * 60 * 1000));
+    const weekNum = Math.ceil((days + jan1.getDay() + 1) / 7);
+
+    // Calcular início e fim da semana (segunda a domingo)
+    const dayOfWeek = now.getDay();
+    const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+    const weekStart = new Date(now);
+    weekStart.setDate(now.getDate() + diffToMonday);
+    weekStart.setHours(0, 0, 0, 0);
+
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekStart.getDate() + 6);
+    weekEnd.setHours(23, 59, 59, 999);
+
+    return {
+        yearWeek: `${now.getFullYear()}-W${String(weekNum).padStart(2, '0')}`,
+        weekStart,
+        weekEnd
+    };
+}
+
+// Função para obter o trimestre atual (formato: "2026-Q1")
+function getCurrentYearQuarter(): string {
+    const now = new Date();
+    const quarter = Math.ceil((now.getMonth() + 1) / 3);
+    return `${now.getFullYear()}-Q${quarter}`;
+}
+
+// Função para calcular score de produtividade (0-100)
+function calculateProductivityScore(totalVideos: number, avgVideosTeam: number): number {
+    if (avgVideosTeam === 0) return 50;
+    const ratio = totalVideos / avgVideosTeam;
+    return Math.min(100, Math.round(ratio * 50));
+}
+
+// Função para calcular score de qualidade (0-100)
+function calculateQualityScore(alterationRate: number): number {
+    return Math.max(0, Math.round(100 - alterationRate * 2));
 }
 
 export async function GET(request: Request) {
@@ -57,7 +105,9 @@ export async function GET(request: Request) {
             tasksProcessed: 0,
             tasksSaved: 0,
             phaseMetricsSaved: 0,
+            weeklyMetricsSaved: 0,
             monthlyMetricsSaved: 0,
+            quarterlyMetricsSaved: 0,
             snapshotSaved: false,
             errors: []
         }
@@ -250,7 +300,207 @@ export async function GET(request: Request) {
             }
         }
 
-        // ========== 5. SALVAR SNAPSHOT DO DASHBOARD ==========
+        // ========== 5. CALCULAR MÉTRICAS SEMANAIS POR EDITOR ==========
+        console.log('[Sync] Calculating weekly metrics per editor...');
+
+        const { yearWeek, weekStart, weekEnd } = getCurrentYearWeek();
+        const weekStartMs = weekStart.getTime();
+        const weekEndMs = weekEnd.getTime();
+
+        // Calcular média de vídeos da equipe para scores
+        let totalTeamVideosWeek = 0;
+        const weeklyEditorMetrics: Array<{
+            editor: typeof editors[0];
+            totalVideos: number;
+            videosWithAlteration: number;
+            totalEditingMs: number;
+            totalAlterationMs: number;
+        }> = [];
+
+        for (const editor of editors) {
+            try {
+                const editorTasks = tasksByEditor.get(editor.name) || [];
+
+                // Filtrar tasks completadas da semana atual
+                const completedTasksWeek = editorTasks.filter(t => {
+                    const status = (t.status?.status || '').toLowerCase();
+                    const isCompleted = status.includes('aprovado') || status.includes('conclu');
+                    const dateClosed = t.date_closed ? parseInt(t.date_closed) : 0;
+                    return isCompleted && dateClosed >= weekStartMs && dateClosed <= weekEndMs;
+                });
+
+                let totalEditingMs = 0;
+                let totalAlterationMs = 0;
+                let videosWithAlteration = 0;
+
+                for (const task of completedTasksWeek) {
+                    const phaseTime = phaseTimeMap.get(task.id);
+                    if (phaseTime) {
+                        totalEditingMs += phaseTime.editingTimeMs;
+                        totalAlterationMs += phaseTime.alterationTimeMs;
+                        if (phaseTime.alterationTimeMs > 0) {
+                            videosWithAlteration++;
+                        }
+                    }
+                }
+
+                weeklyEditorMetrics.push({
+                    editor,
+                    totalVideos: completedTasksWeek.length,
+                    videosWithAlteration,
+                    totalEditingMs,
+                    totalAlterationMs
+                });
+
+                totalTeamVideosWeek += completedTasksWeek.length;
+
+            } catch (error) {
+                console.error(`[Sync] Error calculating weekly for ${editor.name}:`, error);
+            }
+        }
+
+        const avgVideosWeek = editors.length > 0 ? totalTeamVideosWeek / editors.length : 0;
+
+        // Salvar métricas semanais
+        for (const metrics of weeklyEditorMetrics) {
+            try {
+                const alterationRate = calculateAlterationRate(metrics.videosWithAlteration, metrics.totalVideos);
+                const totalEditingHours = metrics.totalEditingMs / (1000 * 60 * 60);
+                const avgEditingHours = metrics.totalVideos > 0 ? totalEditingHours / metrics.totalVideos : 0;
+                const totalAlterationHours = metrics.totalAlterationMs / (1000 * 60 * 60);
+
+                await upsertEditorWeeklyMetrics({
+                    editor_id: metrics.editor.id,
+                    editor_name: metrics.editor.name,
+                    year_week: yearWeek,
+                    week_start: weekStart,
+                    week_end: weekEnd,
+                    total_videos: metrics.totalVideos,
+                    videos_with_alteration: metrics.videosWithAlteration,
+                    alteration_rate: alterationRate,
+                    total_editing_hours: Math.round(totalEditingHours * 100) / 100,
+                    avg_editing_hours: Math.round(avgEditingHours * 100) / 100,
+                    total_alteration_hours: Math.round(totalAlterationHours * 100) / 100,
+                    productivity_score: calculateProductivityScore(metrics.totalVideos, avgVideosWeek),
+                    quality_score: calculateQualityScore(alterationRate)
+                });
+
+                result.stats.weeklyMetricsSaved++;
+
+            } catch (error) {
+                const errorMsg = `Error saving weekly metrics for ${metrics.editor.name}: ${error instanceof Error ? error.message : 'Unknown'}`;
+                console.error(`[Sync] ${errorMsg}`);
+                result.stats.errors.push(errorMsg);
+            }
+        }
+
+        // ========== 6. CALCULAR MÉTRICAS TRIMESTRAIS (apenas no último dia do trimestre ou domingo) ==========
+        const dayOfWeek = currentDate.getDay();
+        const isEndOfQuarter = (currentDate.getMonth() + 1) % 3 === 0 && currentDate.getDate() >= 28;
+        const isSunday = dayOfWeek === 0;
+
+        if (isEndOfQuarter || isSunday) {
+            console.log('[Sync] Calculating quarterly metrics per editor...');
+
+            const yearQuarter = getCurrentYearQuarter();
+            const quarterStartMonth = Math.floor(currentDate.getMonth() / 3) * 3;
+            const quarterStart = new Date(currentDate.getFullYear(), quarterStartMonth, 1).getTime();
+            const quarterEnd = currentDate.getTime();
+
+            // Calcular métricas trimestrais
+            const quarterlyEditorMetrics: Array<{
+                editor: typeof editors[0];
+                totalVideos: number;
+                videosWithAlteration: number;
+                totalEditingMs: number;
+                totalAlterationMs: number;
+            }> = [];
+
+            for (const editor of editors) {
+                try {
+                    const editorTasks = tasksByEditor.get(editor.name) || [];
+
+                    const completedTasksQuarter = editorTasks.filter(t => {
+                        const status = (t.status?.status || '').toLowerCase();
+                        const isCompleted = status.includes('aprovado') || status.includes('conclu');
+                        const dateClosed = t.date_closed ? parseInt(t.date_closed) : 0;
+                        return isCompleted && dateClosed >= quarterStart && dateClosed <= quarterEnd;
+                    });
+
+                    let totalEditingMs = 0;
+                    let totalAlterationMs = 0;
+                    let videosWithAlteration = 0;
+
+                    for (const task of completedTasksQuarter) {
+                        const phaseTime = phaseTimeMap.get(task.id);
+                        if (phaseTime) {
+                            totalEditingMs += phaseTime.editingTimeMs;
+                            totalAlterationMs += phaseTime.alterationTimeMs;
+                            if (phaseTime.alterationTimeMs > 0) {
+                                videosWithAlteration++;
+                            }
+                        }
+                    }
+
+                    quarterlyEditorMetrics.push({
+                        editor,
+                        totalVideos: completedTasksQuarter.length,
+                        videosWithAlteration,
+                        totalEditingMs,
+                        totalAlterationMs
+                    });
+
+                } catch (error) {
+                    console.error(`[Sync] Error calculating quarterly for ${editor.name}:`, error);
+                }
+            }
+
+            // Ordenar por performance para ranking
+            const sortedByPerformance = [...quarterlyEditorMetrics].sort((a, b) => {
+                const scoreA = a.totalVideos * 10 - calculateAlterationRate(a.videosWithAlteration, a.totalVideos);
+                const scoreB = b.totalVideos * 10 - calculateAlterationRate(b.videosWithAlteration, b.totalVideos);
+                return scoreB - scoreA;
+            });
+
+            // Salvar métricas trimestrais
+            for (let i = 0; i < sortedByPerformance.length; i++) {
+                const metrics = sortedByPerformance[i];
+                try {
+                    const alterationRate = calculateAlterationRate(metrics.videosWithAlteration, metrics.totalVideos);
+                    const totalEditingHours = metrics.totalEditingMs / (1000 * 60 * 60);
+                    const avgEditingHours = metrics.totalVideos > 0 ? totalEditingHours / metrics.totalVideos : 0;
+                    const totalAlterationHours = metrics.totalAlterationMs / (1000 * 60 * 60);
+
+                    // Calcular semanas no trimestre
+                    const weeksInQuarter = Math.ceil((quarterEnd - quarterStart) / (7 * 24 * 60 * 60 * 1000));
+                    const avgVideosPerWeek = weeksInQuarter > 0 ? metrics.totalVideos / weeksInQuarter : 0;
+
+                    await upsertEditorQuarterlyMetrics({
+                        editor_id: metrics.editor.id,
+                        editor_name: metrics.editor.name,
+                        year_quarter: yearQuarter,
+                        total_videos: metrics.totalVideos,
+                        videos_with_alteration: metrics.videosWithAlteration,
+                        alteration_rate: alterationRate,
+                        total_editing_hours: Math.round(totalEditingHours * 100) / 100,
+                        avg_editing_hours: Math.round(avgEditingHours * 100) / 100,
+                        total_alteration_hours: Math.round(totalAlterationHours * 100) / 100,
+                        avg_videos_per_week: Math.round(avgVideosPerWeek * 10) / 10,
+                        improvement_vs_last_quarter: 0, // TODO: calcular comparando com trimestre anterior
+                        ranking_position: i + 1
+                    });
+
+                    result.stats.quarterlyMetricsSaved++;
+
+                } catch (error) {
+                    const errorMsg = `Error saving quarterly metrics for ${metrics.editor.name}: ${error instanceof Error ? error.message : 'Unknown'}`;
+                    console.error(`[Sync] ${errorMsg}`);
+                    result.stats.errors.push(errorMsg);
+                }
+            }
+        }
+
+        // ========== 7. SALVAR SNAPSHOT DO DASHBOARD ==========
         console.log('[Sync] Saving dashboard snapshot...');
 
         try {
@@ -326,7 +576,8 @@ export async function GET(request: Request) {
         // ========== FINALIZAR ==========
         const duration = Date.now() - startTime;
         console.log(`[Sync] Completed in ${duration}ms`);
-        console.log(`[Sync] Stats: ${result.stats.tasksSaved} tasks, ${result.stats.phaseMetricsSaved} phase metrics, ${result.stats.monthlyMetricsSaved} monthly metrics`);
+        console.log(`[Sync] Stats: ${result.stats.tasksSaved} tasks, ${result.stats.phaseMetricsSaved} phase metrics`);
+        console.log(`[Sync] Metrics: ${result.stats.weeklyMetricsSaved} weekly, ${result.stats.monthlyMetricsSaved} monthly, ${result.stats.quarterlyMetricsSaved} quarterly`);
 
         result.success = result.stats.errors.length === 0;
 
