@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { DashboardKPIs, NormalizedTask } from '@/types';
 import { ALL_TEAMS, getTeamByMemberName, TeamMember } from '@/lib/constants';
 import {
@@ -9,10 +9,18 @@ import {
     AlertCircle,
     CheckCircle,
     TrendingUp,
+    TrendingDown,
     Calendar,
     Shield,
     User,
-    AlertTriangle
+    AlertTriangle,
+    Target,
+    Zap,
+    Lightbulb,
+    BarChart3,
+    ArrowUp,
+    ArrowDown,
+    Minus
 } from 'lucide-react';
 
 interface EvolucaoViewProps {
@@ -39,6 +47,20 @@ const ADMISSION_DATES: Record<number, number> = {
     82074101: new Date('2025-11-19').getTime(),  // Bruno Cesar
 };
 
+// Mapeamento clickup_id para db_id
+const CLICKUP_TO_DB_ID: Record<number, number> = {
+    248675265: 1,  // Nathan Soares
+    84070913: 2,   // Victor Mazzine
+    112053206: 3,  // Moises Ramalho
+    152605916: 4,  // Victor Mendes
+    3258937: 5,    // Renato Fernandes
+    3272897: 6,    // Douglas Prado
+    96683026: 7,   // Leonardo da Silva
+    84241154: 8,   // Rafael Andrade
+    82093531: 9,   // Loren Gayoso
+    82074101: 10,  // Bruno Cesar
+};
+
 interface EditorEvolution {
     member: TeamMember;
     teamName: string;
@@ -53,6 +75,28 @@ interface EditorEvolution {
     canBePromoted: boolean;
     videosCount: number;
     initials: string;
+    dbId: number | null;
+}
+
+interface EditorAnalysisData {
+    overallScore: number;
+    strengths: string[];
+    areasToImprove: string[];
+    recommendations: string[];
+    improvements: {
+        alterationRateChange: number;
+        productivityChange: number;
+        volumeChange: number;
+        trend: 'improving' | 'stable' | 'declining';
+    };
+    evolution: {
+        weeklyTrend: Array<{
+            period: string;
+            videos: number;
+            alterationRate: number;
+            productivityScore: number;
+        }>;
+    };
 }
 
 function calculateMonthsDiff(start: number, end: number): number {
@@ -73,6 +117,8 @@ function getInitials(name: string): string {
 
 export function EvolucaoView({ kpis, allVideos, lastUpdated }: EvolucaoViewProps) {
     const [selectedEditorId, setSelectedEditorId] = useState<number | null>(null);
+    const [analysisData, setAnalysisData] = useState<EditorAnalysisData | null>(null);
+    const [loadingAnalysis, setLoadingAnalysis] = useState(false);
     const now = Date.now();
 
     // Calculate last 2 months range
@@ -142,6 +188,7 @@ export function EvolucaoView({ kpis, allVideos, lastUpdated }: EvolucaoViewProps
                 canBePromoted,
                 videosCount: editorVideosLast2Months.length,
                 initials: getInitials(member.name),
+                dbId: CLICKUP_TO_DB_ID[member.id] || null,
             });
         });
     });
@@ -152,6 +199,40 @@ export function EvolucaoView({ kpis, allVideos, lastUpdated }: EvolucaoViewProps
     const selectedEditor = selectedEditorId
         ? editorsEvolution.find(e => e.member.id === selectedEditorId)
         : null;
+
+    // Fetch analysis data when editor is selected
+    useEffect(() => {
+        if (selectedEditor?.dbId) {
+            setLoadingAnalysis(true);
+            fetch(`/api/reports/editor/${selectedEditor.dbId}`)
+                .then(res => res.json())
+                .then(data => {
+                    if (data && !data.error) {
+                        setAnalysisData({
+                            overallScore: data.overallScore || 50,
+                            strengths: data.strengths || [],
+                            areasToImprove: data.areasToImprove || [],
+                            recommendations: data.recommendations || [],
+                            improvements: data.improvements || {
+                                alterationRateChange: 0,
+                                productivityChange: 0,
+                                volumeChange: 0,
+                                trend: 'stable'
+                            },
+                            evolution: {
+                                weeklyTrend: data.evolution?.weeklyTrend || []
+                            }
+                        });
+                    } else {
+                        setAnalysisData(null);
+                    }
+                })
+                .catch(() => setAnalysisData(null))
+                .finally(() => setLoadingAnalysis(false));
+        } else {
+            setAnalysisData(null);
+        }
+    }, [selectedEditor?.dbId]);
 
     const statusConfig = {
         on_track: { color: 'text-green-400', bg: 'bg-green-600/20', border: 'border-green-500/30', icon: CheckCircle, label: 'No Caminho' },
@@ -164,6 +245,19 @@ export function EvolucaoView({ kpis, allVideos, lastUpdated }: EvolucaoViewProps
     const editorsInAudit = editorsEvolution.filter(e => e.isInAuditMode);
     const editorsReadyForPromotion = editorsEvolution.filter(e => e.canBePromoted);
     const editorsAtRisk = editorsEvolution.filter(e => e.status === 'risk' || e.status === 'attention');
+
+    const getTrendIcon = (trend: string) => {
+        if (trend === 'improving') return <TrendingUp className="w-4 h-4 text-green-400" />;
+        if (trend === 'declining') return <TrendingDown className="w-4 h-4 text-red-400" />;
+        return <Minus className="w-4 h-4 text-gray-400" />;
+    };
+
+    const getScoreColor = (score: number) => {
+        if (score >= 80) return 'text-green-400';
+        if (score >= 60) return 'text-blue-400';
+        if (score >= 40) return 'text-amber-400';
+        return 'text-red-400';
+    };
 
     return (
         <div className="p-6">
@@ -260,14 +354,25 @@ export function EvolucaoView({ kpis, allVideos, lastUpdated }: EvolucaoViewProps
                                             <p className="text-gray-500 text-sm">{selectedEditor.teamName}</p>
                                         </div>
                                     </div>
-                                    <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full ${statusConfig[selectedEditor.status].bg}`}>
-                                        {(() => {
-                                            const StatusIcon = statusConfig[selectedEditor.status].icon;
-                                            return <StatusIcon className={`w-4 h-4 ${statusConfig[selectedEditor.status].color}`} />;
-                                        })()}
-                                        <span className={`text-sm font-medium ${statusConfig[selectedEditor.status].color}`}>
-                                            {statusConfig[selectedEditor.status].label}
-                                        </span>
+                                    <div className="flex items-center gap-3">
+                                        {/* Score Geral */}
+                                        {analysisData && (
+                                            <div className="text-center">
+                                                <p className={`text-3xl font-bold ${getScoreColor(analysisData.overallScore)}`}>
+                                                    {analysisData.overallScore}
+                                                </p>
+                                                <p className="text-gray-500 text-xs">Score</p>
+                                            </div>
+                                        )}
+                                        <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full ${statusConfig[selectedEditor.status].bg}`}>
+                                            {(() => {
+                                                const StatusIcon = statusConfig[selectedEditor.status].icon;
+                                                return <StatusIcon className={`w-4 h-4 ${statusConfig[selectedEditor.status].color}`} />;
+                                            })()}
+                                            <span className={`text-sm font-medium ${statusConfig[selectedEditor.status].color}`}>
+                                                {statusConfig[selectedEditor.status].label}
+                                            </span>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -297,35 +402,205 @@ export function EvolucaoView({ kpis, allVideos, lastUpdated }: EvolucaoViewProps
                                 )}
                             </div>
 
-                            {/* Métricas */}
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="bg-[#12121a] border border-purple-900/30 rounded-xl p-4">
+                            {/* Métricas + Tendência */}
+                            <div className="grid grid-cols-4 gap-3">
+                                <div className="bg-[#12121a] border border-purple-900/30 rounded-xl p-3">
                                     <p className="text-gray-500 text-xs mb-1">Data de Admissão</p>
-                                    <p className="text-white font-bold text-lg">
+                                    <p className="text-white font-bold">
                                         {new Date(selectedEditor.admissionDate).toLocaleDateString('pt-BR')}
                                     </p>
                                 </div>
-                                <div className="bg-[#12121a] border border-purple-900/30 rounded-xl p-4">
-                                    <p className="text-gray-500 text-xs mb-1">Dias para Promoção</p>
-                                    <p className={`font-bold text-lg ${selectedEditor.daysUntilPromotion === 0 ? 'text-purple-400' : 'text-white'}`}>
+                                <div className="bg-[#12121a] border border-purple-900/30 rounded-xl p-3">
+                                    <p className="text-gray-500 text-xs mb-1">Dias p/ Promoção</p>
+                                    <p className={`font-bold ${selectedEditor.daysUntilPromotion === 0 ? 'text-purple-400' : 'text-white'}`}>
                                         {selectedEditor.daysUntilPromotion === 0 ? 'Elegível!' : `${selectedEditor.daysUntilPromotion} dias`}
                                     </p>
                                 </div>
-                                <div className="bg-[#12121a] border border-purple-900/30 rounded-xl p-4">
-                                    <p className="text-gray-500 text-xs mb-1">Taxa Alteração (2 meses)</p>
-                                    <p className={`font-bold text-lg ${
+                                <div className="bg-[#12121a] border border-purple-900/30 rounded-xl p-3">
+                                    <p className="text-gray-500 text-xs mb-1">Taxa Alteração (2m)</p>
+                                    <p className={`font-bold ${
                                         selectedEditor.alterationRateLast2Months <= 5 ? 'text-green-400' :
                                         selectedEditor.alterationRateLast2Months <= 10 ? 'text-amber-400' : 'text-red-400'
                                     }`}>
                                         {selectedEditor.alterationRateLast2Months}%
-                                        <span className="text-gray-500 text-xs font-normal ml-1">(meta: ≤5%)</span>
                                     </p>
                                 </div>
-                                <div className="bg-[#12121a] border border-purple-900/30 rounded-xl p-4">
-                                    <p className="text-gray-500 text-xs mb-1">Vídeos (2 meses)</p>
-                                    <p className="text-white font-bold text-lg">{selectedEditor.videosCount}</p>
+                                <div className="bg-[#12121a] border border-purple-900/30 rounded-xl p-3">
+                                    <p className="text-gray-500 text-xs mb-1">Vídeos (2m)</p>
+                                    <p className="text-white font-bold">{selectedEditor.videosCount}</p>
                                 </div>
                             </div>
+
+                            {/* Análise de Evolução do Banco */}
+                            {loadingAnalysis ? (
+                                <div className="bg-[#12121a] border border-purple-900/30 rounded-xl p-8 text-center">
+                                    <div className="animate-spin w-8 h-8 border-2 border-purple-400 border-t-transparent rounded-full mx-auto mb-3" />
+                                    <p className="text-gray-400">Carregando análise...</p>
+                                </div>
+                            ) : analysisData && (analysisData.evolution.weeklyTrend.length > 0 || analysisData.strengths.length > 0) ? (
+                                <>
+                                    {/* Tendência Semanal */}
+                                    {analysisData.evolution.weeklyTrend.length > 0 && (
+                                        <div className="bg-[#12121a] border border-purple-900/30 rounded-xl p-4">
+                                            <div className="flex items-center justify-between mb-3">
+                                                <h3 className="text-white font-medium flex items-center gap-2">
+                                                    <BarChart3 className="w-4 h-4 text-purple-400" />
+                                                    Tendência Semanal
+                                                </h3>
+                                                <div className="flex items-center gap-1 text-sm">
+                                                    {getTrendIcon(analysisData.improvements.trend)}
+                                                    <span className={
+                                                        analysisData.improvements.trend === 'improving' ? 'text-green-400' :
+                                                        analysisData.improvements.trend === 'declining' ? 'text-red-400' : 'text-gray-400'
+                                                    }>
+                                                        {analysisData.improvements.trend === 'improving' ? 'Melhorando' :
+                                                         analysisData.improvements.trend === 'declining' ? 'Em queda' : 'Estável'}
+                                                    </span>
+                                                </div>
+                                            </div>
+
+                                            {/* Mini gráfico de barras */}
+                                            <div className="flex items-end gap-1 h-20">
+                                                {analysisData.evolution.weeklyTrend.slice(-8).map((week, i) => (
+                                                    <div key={week.period} className="flex-1 flex flex-col items-center">
+                                                        <div
+                                                            className="w-full bg-purple-500/50 rounded-t transition-all"
+                                                            style={{
+                                                                height: `${Math.max(10, week.videos * 15)}px`,
+                                                            }}
+                                                            title={`${week.period}: ${week.videos} vídeos`}
+                                                        />
+                                                        <span className="text-[10px] text-gray-500 mt-1">
+                                                            S{week.period.split('-W')[1]}
+                                                        </span>
+                                                    </div>
+                                                ))}
+                                            </div>
+
+                                            {/* Indicadores de mudança */}
+                                            <div className="grid grid-cols-3 gap-3 mt-4 pt-3 border-t border-gray-800">
+                                                <div className="text-center">
+                                                    <div className="flex items-center justify-center gap-1">
+                                                        {analysisData.improvements.alterationRateChange < 0 ? (
+                                                            <ArrowDown className="w-3 h-3 text-green-400" />
+                                                        ) : analysisData.improvements.alterationRateChange > 0 ? (
+                                                            <ArrowUp className="w-3 h-3 text-red-400" />
+                                                        ) : (
+                                                            <Minus className="w-3 h-3 text-gray-400" />
+                                                        )}
+                                                        <span className={`text-sm font-bold ${
+                                                            analysisData.improvements.alterationRateChange < 0 ? 'text-green-400' :
+                                                            analysisData.improvements.alterationRateChange > 0 ? 'text-red-400' : 'text-gray-400'
+                                                        }`}>
+                                                            {analysisData.improvements.alterationRateChange > 0 ? '+' : ''}
+                                                            {analysisData.improvements.alterationRateChange}pp
+                                                        </span>
+                                                    </div>
+                                                    <p className="text-gray-500 text-xs">Alteração</p>
+                                                </div>
+                                                <div className="text-center">
+                                                    <div className="flex items-center justify-center gap-1">
+                                                        {analysisData.improvements.productivityChange > 0 ? (
+                                                            <ArrowUp className="w-3 h-3 text-green-400" />
+                                                        ) : analysisData.improvements.productivityChange < 0 ? (
+                                                            <ArrowDown className="w-3 h-3 text-red-400" />
+                                                        ) : (
+                                                            <Minus className="w-3 h-3 text-gray-400" />
+                                                        )}
+                                                        <span className={`text-sm font-bold ${
+                                                            analysisData.improvements.productivityChange > 0 ? 'text-green-400' :
+                                                            analysisData.improvements.productivityChange < 0 ? 'text-red-400' : 'text-gray-400'
+                                                        }`}>
+                                                            {analysisData.improvements.productivityChange > 0 ? '+' : ''}
+                                                            {analysisData.improvements.productivityChange}
+                                                        </span>
+                                                    </div>
+                                                    <p className="text-gray-500 text-xs">Produtividade</p>
+                                                </div>
+                                                <div className="text-center">
+                                                    <div className="flex items-center justify-center gap-1">
+                                                        {analysisData.improvements.volumeChange > 0 ? (
+                                                            <ArrowUp className="w-3 h-3 text-green-400" />
+                                                        ) : analysisData.improvements.volumeChange < 0 ? (
+                                                            <ArrowDown className="w-3 h-3 text-red-400" />
+                                                        ) : (
+                                                            <Minus className="w-3 h-3 text-gray-400" />
+                                                        )}
+                                                        <span className={`text-sm font-bold ${
+                                                            analysisData.improvements.volumeChange > 0 ? 'text-green-400' :
+                                                            analysisData.improvements.volumeChange < 0 ? 'text-red-400' : 'text-gray-400'
+                                                        }`}>
+                                                            {analysisData.improvements.volumeChange > 0 ? '+' : ''}
+                                                            {analysisData.improvements.volumeChange}%
+                                                        </span>
+                                                    </div>
+                                                    <p className="text-gray-500 text-xs">Volume</p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Pontos Fortes e Áreas de Melhoria */}
+                                    <div className="grid grid-cols-2 gap-4">
+                                        {/* Pontos Fortes */}
+                                        <div className="bg-green-950/30 border border-green-900/50 rounded-xl p-4">
+                                            <h3 className="text-green-400 font-medium mb-3 flex items-center gap-2 text-sm">
+                                                <Zap className="w-4 h-4" />
+                                                Pontos Fortes
+                                            </h3>
+                                            {analysisData.strengths.length > 0 ? (
+                                                <ul className="space-y-2">
+                                                    {analysisData.strengths.map((strength, i) => (
+                                                        <li key={i} className="text-green-200/80 text-sm flex items-start gap-2">
+                                                            <CheckCircle className="w-3 h-3 text-green-400 mt-1 flex-shrink-0" />
+                                                            {strength}
+                                                        </li>
+                                                    ))}
+                                                </ul>
+                                            ) : (
+                                                <p className="text-gray-500 text-sm">Dados insuficientes</p>
+                                            )}
+                                        </div>
+
+                                        {/* Áreas de Melhoria */}
+                                        <div className="bg-amber-950/30 border border-amber-900/50 rounded-xl p-4">
+                                            <h3 className="text-amber-400 font-medium mb-3 flex items-center gap-2 text-sm">
+                                                <Target className="w-4 h-4" />
+                                                Áreas de Melhoria
+                                            </h3>
+                                            {analysisData.areasToImprove.length > 0 ? (
+                                                <ul className="space-y-2">
+                                                    {analysisData.areasToImprove.map((area, i) => (
+                                                        <li key={i} className="text-amber-200/80 text-sm flex items-start gap-2">
+                                                            <AlertCircle className="w-3 h-3 text-amber-400 mt-1 flex-shrink-0" />
+                                                            {area}
+                                                        </li>
+                                                    ))}
+                                                </ul>
+                                            ) : (
+                                                <p className="text-gray-500 text-sm">Nenhuma área crítica identificada</p>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* Recomendações */}
+                                    {analysisData.recommendations.length > 0 && (
+                                        <div className="bg-blue-950/30 border border-blue-900/50 rounded-xl p-4">
+                                            <h3 className="text-blue-400 font-medium mb-3 flex items-center gap-2 text-sm">
+                                                <Lightbulb className="w-4 h-4" />
+                                                Recomendações
+                                            </h3>
+                                            <ul className="space-y-2">
+                                                {analysisData.recommendations.map((rec, i) => (
+                                                    <li key={i} className="text-blue-200/80 text-sm">
+                                                        {rec}
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        </div>
+                                    )}
+                                </>
+                            ) : null}
 
                             {/* Status de promoção */}
                             {selectedEditor.canBePromoted && (
@@ -444,7 +719,7 @@ export function EvolucaoView({ kpis, allVideos, lastUpdated }: EvolucaoViewProps
                                 <User className="w-12 h-12 text-purple-400 mx-auto mb-3" />
                                 <h3 className="text-white font-medium mb-1">Selecione um editor</h3>
                                 <p className="text-gray-500 text-sm">
-                                    Clique em um editor na lista para ver o progresso detalhado
+                                    Clique em um editor na lista para ver o progresso detalhado e análise de evolução
                                 </p>
                             </div>
                         </div>
