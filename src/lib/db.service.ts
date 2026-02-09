@@ -155,8 +155,13 @@ export async function getActiveEditors(): Promise<DbEditor[]> {
 }
 
 export async function getEditorById(id: number): Promise<DbEditor | null> {
-    const result = await sql<DbEditor>`SELECT * FROM editors WHERE id = ${id}`;
-    return result.rows[0] || null;
+    const result = await sql`
+        SELECT id, clickup_id, name, email, role, color, team_id,
+               admission_date::text as admission_date, promotion_date::text as promotion_date,
+               status, created_at::text as created_at, updated_at::text as updated_at
+        FROM editors WHERE id = ${id}
+    `;
+    return (result.rows[0] as unknown as DbEditor) || null;
 }
 
 export async function getEditorByClickupId(clickupId: number): Promise<DbEditor | null> {
@@ -265,13 +270,16 @@ export async function getTaskById(id: string): Promise<DbTask | null> {
 }
 
 export async function getTasksByEditor(editorId: number, limit = 100): Promise<DbTask[]> {
-    const result = await sql<DbTask>`
-        SELECT * FROM tasks
+    const result = await sql`
+        SELECT id, title, status, raw_status, editor_id, editor_name,
+               clickup_editor_id, date_created, date_closed, time_tracked_ms,
+               video_type, link, tags, created_at::text as created_at, updated_at::text as updated_at
+        FROM tasks
         WHERE editor_id = ${editorId}
         ORDER BY date_created DESC
         LIMIT ${limit}
     `;
-    return result.rows;
+    return result.rows as unknown as DbTask[];
 }
 
 export async function getCompletedTasksInPeriod(startDate: number, endDate: number): Promise<DbTask[]> {
@@ -404,19 +412,27 @@ export async function upsertEditorMonthlyMetrics(metrics: Omit<DbEditorMonthlyMe
 
 export async function getEditorMonthlyMetrics(editorId: number, yearMonth?: string): Promise<DbEditorMonthlyMetrics[]> {
     if (yearMonth) {
-        const result = await sql<DbEditorMonthlyMetrics>`
-            SELECT * FROM editor_monthly_metrics
+        const result = await sql`
+            SELECT id, editor_id, editor_name, year_month, total_videos,
+                   videos_with_alteration, alteration_rate, total_editing_hours,
+                   avg_editing_hours, total_alteration_hours, avg_lead_time_hours,
+                   months_in_company, evolution_status, created_at::text as created_at
+            FROM editor_monthly_metrics
             WHERE editor_id = ${editorId} AND year_month = ${yearMonth}
         `;
-        return result.rows;
+        return result.rows as unknown as DbEditorMonthlyMetrics[];
     }
 
-    const result = await sql<DbEditorMonthlyMetrics>`
-        SELECT * FROM editor_monthly_metrics
+    const result = await sql`
+        SELECT id, editor_id, editor_name, year_month, total_videos,
+               videos_with_alteration, alteration_rate, total_editing_hours,
+               avg_editing_hours, total_alteration_hours, avg_lead_time_hours,
+               months_in_company, evolution_status, created_at::text as created_at
+        FROM editor_monthly_metrics
         WHERE editor_id = ${editorId}
         ORDER BY year_month DESC
     `;
-    return result.rows;
+    return result.rows as unknown as DbEditorMonthlyMetrics[];
 }
 
 export async function getMonthlyMetricsForAllEditors(yearMonth: string): Promise<DbEditorMonthlyMetrics[]> {
@@ -551,13 +567,18 @@ export async function upsertEditorWeeklyMetrics(metrics: Omit<DbEditorWeeklyMetr
 }
 
 export async function getEditorWeeklyMetrics(editorId: number, limit = 12): Promise<DbEditorWeeklyMetrics[]> {
-    const result = await sql<DbEditorWeeklyMetrics>`
-        SELECT * FROM editor_weekly_metrics
+    const result = await sql`
+        SELECT id, editor_id, editor_name, year_week,
+               week_start::text as week_start, week_end::text as week_end,
+               total_videos, videos_with_alteration, alteration_rate,
+               total_editing_hours, avg_editing_hours, total_alteration_hours,
+               productivity_score, quality_score, created_at::text as created_at
+        FROM editor_weekly_metrics
         WHERE editor_id = ${editorId}
         ORDER BY year_week DESC
         LIMIT ${limit}
     `;
-    return result.rows;
+    return result.rows as unknown as DbEditorWeeklyMetrics[];
 }
 
 export async function getWeeklyMetricsForAllEditors(yearWeek: string): Promise<DbEditorWeeklyMetrics[]> {
