@@ -294,8 +294,13 @@ export async function GET(
 
     } catch (error) {
         console.error('[Editor Analysis] Error:', error);
+        console.error('[Editor Analysis] Stack:', error instanceof Error ? error.stack : 'No stack');
         return NextResponse.json(
-            { error: 'Erro ao gerar análise', details: error instanceof Error ? error.message : 'Unknown' },
+            {
+                error: 'Erro ao gerar análise',
+                details: error instanceof Error ? error.message : 'Unknown',
+                stack: error instanceof Error ? error.stack : undefined
+            },
             { status: 500 }
         );
     }
