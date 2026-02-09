@@ -79,12 +79,17 @@ interface EditorAnalysisReport {
     recommendations: string[];
 }
 
-function calculateMonthsInCompany(admissionDate: Date | null): number {
+function calculateMonthsInCompany(admissionDate: Date | string | null): number {
     if (!admissionDate) return 0;
-    const now = new Date();
-    const admission = new Date(admissionDate);
-    const diffMs = now.getTime() - admission.getTime();
-    return Math.floor(diffMs / (1000 * 60 * 60 * 24 * 30));
+    try {
+        const now = new Date();
+        const admission = typeof admissionDate === 'string' ? new Date(admissionDate) : admissionDate;
+        if (isNaN(admission.getTime())) return 0;
+        const diffMs = now.getTime() - admission.getTime();
+        return Math.floor(diffMs / (1000 * 60 * 60 * 24 * 30));
+    } catch {
+        return 0;
+    }
 }
 
 function generateRecommendations(
@@ -183,7 +188,11 @@ export async function GET(
                 name: editor.name,
                 team: editor.team_id,
                 role: editor.role,
-                admissionDate: editor.admission_date?.toISOString().split('T')[0] || null,
+                admissionDate: editor.admission_date
+                    ? (typeof editor.admission_date === 'string'
+                        ? editor.admission_date.split('T')[0]
+                        : editor.admission_date.toISOString().split('T')[0])
+                    : null,
                 monthsInCompany,
                 status: editor.status
             },
@@ -233,14 +242,46 @@ export async function GET(
             strengths: evolutionAnalysis?.strengths || [],
             areasToImprove: evolutionAnalysis?.areasToImprove || [],
             overallScore: evolutionAnalysis?.overallScore || 50,
-            recentTasks: recentTasks.map(t => ({
-                id: t.id,
-                title: t.title,
-                status: t.status,
-                videoType: t.video_type,
-                dateCreated: new Date(t.date_created).toISOString().split('T')[0],
-                dateClosed: t.date_closed ? new Date(t.date_closed).toISOString().split('T')[0] : null
-            })),
+            recentTasks: recentTasks.map(t => {
+                // date_created e date_closed são timestamps em ms
+                let dateCreatedStr = '';
+                let dateClosedStr: string | null = null;
+
+                try {
+                    if (t.date_created) {
+                        const dateCreated = typeof t.date_created === 'number'
+                            ? new Date(t.date_created)
+                            : new Date(t.date_created);
+                        if (!isNaN(dateCreated.getTime())) {
+                            dateCreatedStr = dateCreated.toISOString().split('T')[0];
+                        }
+                    }
+                } catch {
+                    dateCreatedStr = '';
+                }
+
+                try {
+                    if (t.date_closed) {
+                        const dateClosed = typeof t.date_closed === 'number'
+                            ? new Date(t.date_closed)
+                            : new Date(t.date_closed);
+                        if (!isNaN(dateClosed.getTime())) {
+                            dateClosedStr = dateClosed.toISOString().split('T')[0];
+                        }
+                    }
+                } catch {
+                    dateClosedStr = null;
+                }
+
+                return {
+                    id: t.id,
+                    title: t.title,
+                    status: t.status,
+                    videoType: t.video_type,
+                    dateCreated: dateCreatedStr,
+                    dateClosed: dateClosedStr
+                };
+            }),
             recommendations: generateRecommendations(
                 currentMonth?.alteration_rate || currentWeek?.alteration_rate || 0,
                 currentWeek?.productivity_score || 50,
